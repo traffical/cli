@@ -422,6 +422,30 @@ function generateExampleSection(): string {
 #
 # Supported types: string, number, boolean, json
 # Learn more: https://docs.traffical.io/config-as-code/parameters
+#
+# ──────────────────────────────────────────────────────────────────────────────
+# Example event definitions:
+#
+#   purchase:
+#     valueType: currency
+#     unit: USD
+#     description: User completes a purchase
+#
+#   add_to_cart:
+#     valueType: count
+#     description: User adds item to cart
+#
+#   checkout_started:
+#     valueType: boolean
+#     description: User initiates checkout
+#
+#   conversion_rate:
+#     valueType: rate
+#     unit: percent
+#     description: Percentage of visitors who convert
+#
+# Supported valueTypes: currency, count, rate, boolean
+# Learn more: https://docs.traffical.io/config-as-code/events
 # ──────────────────────────────────────────────────────────────────────────────
 `;
 }

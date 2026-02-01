@@ -49,8 +49,8 @@ The CLI automatically detects your framework (React, Next.js, Svelte, SvelteKit,
 | Command | Description |
 |---------|-------------|
 | `init` | Initialize Traffical in a project, creates `.traffical/` directory |
-| `push` | Push local config to Traffical (validates first) |
-| `pull` | Pull synced parameters from Traffical to local config |
+| `push` | Push local parameters and events to Traffical (validates first) |
+| `pull` | Pull synced parameters and events from Traffical to local config |
 | `sync` | Bidirectional sync (local wins policy) |
 | `status` | Show current sync status |
 | `import <key>` | Import dashboard parameters (supports wildcards: `ui.*`, `*.enabled`) |
@@ -61,8 +61,8 @@ The CLI automatically detects your framework (React, Next.js, Svelte, SvelteKit,
 The CLI uses a **"local wins"** policy for the `sync` command:
 
 1. **Validates** your local config first (catches errors before any network calls)
-2. **Pushes** your local changes to Traffical (your edits take precedence)
-3. **Adds** new parameters from Traffical that you don't have locally
+2. **Pushes** your local parameters and events to Traffical (your edits take precedence)
+3. **Adds** new parameters and events from Traffical that you don't have locally
 4. **Warns** about conflicts (but your local version is used)
 
 This matches the Git workflow where your local file is the source of truth. If you want to overwrite local changes with remote values, use `traffical pull` explicitly.
@@ -73,7 +73,7 @@ This matches the Git workflow where your local file is the source of truth. If y
 # Edit config locally
 vim .traffical/config.yaml
 
-# Sync: your changes are pushed, new remote params are added
+# Sync: your changes are pushed, new remote params/events are added
 traffical sync
 
 # If you want remote values to overwrite local:
@@ -100,6 +100,16 @@ parameters:
     type: boolean
     default: false
     namespace: pricing
+
+events:
+  purchase:
+    valueType: currency
+    unit: USD
+    description: User completes a purchase
+
+  add_to_cart:
+    valueType: count
+    description: User adds item to cart
 ```
 
 ### Parameter Types
@@ -111,6 +121,57 @@ parameters:
 | `boolean` | `true` or `false` |
 | `json` | Object or array |
 
+### Events
+
+Events define the metrics you want to track in your experiments and analytics. They are synced to Traffical alongside your parameters.
+
+```yaml
+# .traffical/config.yaml
+version: "1.0"
+project:
+  id: proj_xxx
+  orgId: org_xxx
+
+parameters:
+  # ... your parameters ...
+
+events:
+  purchase:
+    valueType: currency
+    unit: USD
+    description: User completes a purchase
+
+  add_to_cart:
+    valueType: count
+    description: User adds item to cart
+
+  checkout_started:
+    valueType: boolean
+    description: User initiates checkout
+
+  conversion_rate:
+    valueType: rate
+    unit: percent
+    description: Percentage of visitors who convert
+```
+
+#### Event Value Types
+
+| Value Type | Use Case | Example |
+|------------|----------|---------|
+| `currency` | Monetary values (revenue, order value) | Purchase amount in USD |
+| `count` | Numeric counts (clicks, items, views) | Items added to cart |
+| `rate` | Percentages or ratios | Conversion rate |
+| `boolean` | Binary events (happened or not) | Checkout started |
+
+#### Event Properties
+
+| Property | Required | Description |
+|----------|----------|-------------|
+| `valueType` | Yes | Type of value: `currency`, `count`, `rate`, or `boolean` |
+| `unit` | No | Unit for the value (e.g., `USD`, `items`, `percent`) |
+| `description` | No | Human-readable description of what the event tracks |
+
 ## Validation
 
 The CLI validates your config against a JSON Schema before pushing:
@@ -118,6 +179,7 @@ The CLI validates your config against a JSON Schema before pushing:
 - Required fields (`version`, `project.id`, `project.orgId`, `parameters`)
 - Type consistency (e.g., `type: boolean` must have a boolean `default`)
 - ID format (`proj_*` and `org_*` prefixes)
+- Event definitions (valid `valueType` values)
 
 ```bash
 # Validation happens automatically on push/sync
