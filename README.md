@@ -49,8 +49,8 @@ The CLI automatically detects your framework (React, Next.js, Svelte, SvelteKit,
 | Command | Description |
 |---------|-------------|
 | `init` | Initialize Traffical in a project, creates `.traffical/` directory |
-| `push` | Push local parameters and events to Traffical (validates first) |
-| `pull` | Pull synced parameters and events from Traffical to local config |
+| `push` | Push local config to Traffical (validates first) |
+| `pull` | Pull synced parameters from Traffical to local config |
 | `sync` | Bidirectional sync (local wins policy) |
 | `status` | Show current sync status |
 | `import <key>` | Import dashboard parameters (supports wildcards: `ui.*`, `*.enabled`) |
