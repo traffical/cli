@@ -7,9 +7,9 @@
  * 3. Detecting framework
  * 4. Creating .traffical/ directory with:
  *    - config.yaml (with existing synced parameters)
- *    - AGENTS.md (AI agent instructions)
  *    - TEMPLATES.md (framework-specific code patterns)
- * 5. Optionally integrating with AI tool config files
+ *    - .env (auto-generated SDK key)
+ * 5. Creating AGENTS.md at project root (project-specific quick reference)
  */
 
 import chalk from "chalk";
@@ -22,17 +22,12 @@ import {
   createConfigFile,
   apiParamToConfig,
   ensureTrafficalDir,
-  ensureClaudeSkillDir,
   getDefaultConfigPath,
   getAgentsPath,
-  getClaudeSkillPath,
   readAgentsFile,
   hasTrafficalSection,
   ensureTrafficalGitignore,
   TRAFFICAL_DIR,
-  CLAUDE_DIR,
-  CLAUDE_SKILLS_DIR,
-  CLAUDE_SKILL_NAME,
   AGENTS_FILENAME,
 } from "../lib/config.ts";
 import type { ConfigParameter, ApiOrganization, ApiProject } from "../lib/types.ts";
@@ -46,14 +41,7 @@ import {
   type DetectedStack,
 } from "../lib/detection.ts";
 import { generateAgentsMd, updateAgentsMd } from "../lib/agents.ts";
-import { generateSkillMd } from "../lib/skill.ts";
 import { copyTemplate } from "../lib/templates.ts";
-import {
-  detectAIToolFiles,
-  addTrafficalReference,
-  getUpdatableTools,
-  type DetectedAITool,
-} from "../lib/ai-tools.ts";
 import { type OutputFormat, parseFormatOption, output, success } from "../lib/output.ts";
 
 const INTERACTIVE_THRESHOLD = 10;
@@ -231,41 +219,6 @@ async function confirmOrSelectStack(detected: DetectedStack): Promise<StackSelec
   };
 }
 
-/**
- * Handle AI tool file integration.
- */
-async function handleAIToolIntegration(projectDir: string): Promise<string[]> {
-  const updatedFiles: string[] = [];
-  const aiTools = await detectAIToolFiles(projectDir);
-  const updatable = getUpdatableTools(aiTools);
-
-  if (updatable.length === 0) {
-    return updatedFiles;
-  }
-
-  console.log();
-  console.log(chalk.bold("AI Tool Integration"));
-  console.log(chalk.dim("Found AI coding tool configuration files:\n"));
-
-  for (const tool of updatable) {
-    console.log(`  • ${tool.file.filename} (${tool.file.tool})`);
-  }
-  console.log();
-
-  const shouldUpdate = await confirm({
-    message: "Add Traffical reference to these files?",
-    default: true,
-  });
-
-  if (shouldUpdate) {
-    for (const tool of updatable) {
-      await addTrafficalReference(tool);
-      updatedFiles.push(tool.file.filename);
-    }
-  }
-
-  return updatedFiles;
-}
 
 export interface InitOptions {
   profile?: string;
@@ -298,11 +251,9 @@ export interface InitResult {
   files: {
     config: string;
     agents: string;
-    skill: string;
     templates: string;
   };
   parameters: number;
-  aiToolsUpdated: string[];
   sdkKey?: {
     created: boolean;
     keyPrefix?: string;
@@ -649,23 +600,6 @@ export async function initCommand(options: InitOptions): Promise<void> {
     console.log(chalk.green(`✓ Created ${TRAFFICAL_DIR}/TEMPLATES.md`));
   }
 
-  // Create .claude/skills/traffical/SKILL.md for Claude Code discovery
-  await ensureClaudeSkillDir(projectDir);
-  const skillPath = getClaudeSkillPath(projectDir);
-  const skillContent = generateSkillMd({
-    projectName: selectedProject.name,
-    orgName: selectedOrg.name,
-    framework,
-    language,
-    parameters: configParams,
-  });
-  await writeFile(skillPath, skillContent, "utf-8");
-
-  if (!isJson) {
-    console.log(chalk.green(`✓ Created ${CLAUDE_DIR}/${CLAUDE_SKILLS_DIR}/${CLAUDE_SKILL_NAME}/SKILL.md`));
-    console.log(chalk.dim(`  Claude Code will auto-discover this Skill`));
-  }
-
   // Create SDK key for runtime use
   let sdkKeyResult: { created: boolean; keyPrefix?: string; envPath?: string } = { created: false };
   if (options.sdkKey !== false) {
@@ -707,16 +641,6 @@ export async function initCommand(options: InitOptions): Promise<void> {
     }
   }
 
-  // Handle AI tool integration
-  const aiToolsUpdated = await handleAIToolIntegration(projectDir);
-
-  if (!isJson && aiToolsUpdated.length > 0) {
-    console.log();
-    for (const file of aiToolsUpdated) {
-      console.log(chalk.green(`✓ Updated ${file}`));
-    }
-  }
-
   // Output result
   const result: InitResult = {
     success: true,
@@ -738,11 +662,9 @@ export async function initCommand(options: InitOptions): Promise<void> {
     files: {
       config: configPath,
       agents: agentsPath,
-      skill: skillPath,
       templates: templatesPath,
     },
     parameters: parameters.length,
-    aiToolsUpdated,
     sdkKey: sdkKeyResult,
   };
 
@@ -761,9 +683,9 @@ export async function initCommand(options: InitOptions): Promise<void> {
       console.log(`  4. Run ${chalk.cyan("traffical status")} to check sync status`);
     }
     console.log();
-    console.log(chalk.dim("AI Integration:"));
-    console.log(chalk.dim(`  • Claude Code will auto-discover ${CLAUDE_DIR}/${CLAUDE_SKILLS_DIR}/${CLAUDE_SKILL_NAME}/`));
-    console.log(chalk.dim(`  • OpenAI Codex CLI and other tools can read ${AGENTS_FILENAME}`));
+    console.log(chalk.dim("AI agent integration:"));
+    console.log(chalk.dim(`  • Install the Traffical skill: ${chalk.cyan("npx skills add traffical/skills")}`));
+    console.log(chalk.dim(`  • ${AGENTS_FILENAME} has a project-specific quick reference`));
     console.log();
     console.log(chalk.dim("Learn more: https://docs.traffical.io/config-as-code"));
     console.log();

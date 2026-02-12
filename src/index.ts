@@ -11,7 +11,6 @@
  *   sync               - Bidirectional sync (pull + push)
  *   status             - Show sync status
  *   import             - Add dashboard param to config file
- *   integrate-ai-tools - Add Traffical references to AI tool config files
  *
  * Exit Codes:
  *   0  - Success
@@ -30,7 +29,6 @@ import { pushCommand } from "./commands/push.ts";
 import { syncCommand } from "./commands/sync.ts";
 import { statusCommand } from "./commands/status.ts";
 import { importCommand } from "./commands/import.ts";
-import { integrateAIToolsCommand } from "./commands/integrate-ai-tools.ts";
 import { generateTypesCommand } from "./commands/generate-types.ts";
 import { CliError, EXIT_VALIDATION_ERROR } from "./lib/api.ts";
 import { TRAFFICAL_DIR, CONFIG_FILENAME } from "./lib/config.ts";
@@ -188,23 +186,6 @@ program
         apiBase: globalOpts.apiBase,
         key,
         format: globalOpts.format,
-      });
-    } catch (error) {
-      handleError(error, globalOpts.format);
-    }
-  });
-
-// Integrate AI Tools command
-program
-  .command("integrate-ai-tools")
-  .description("Add Traffical references to AI coding tool config files (CLAUDE.md, .cursorrules, etc.)")
-  .option("-y, --yes", "Automatically confirm without prompting")
-  .action(async (options) => {
-    const globalOpts = program.opts();
-    try {
-      await integrateAIToolsCommand({
-        format: globalOpts.format,
-        yes: options.yes,
       });
     } catch (error) {
       handleError(error, globalOpts.format);
