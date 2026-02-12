@@ -17,7 +17,7 @@ import { writeFile } from "fs/promises";
 import { join } from "node:path";
 import { select, search, confirm, password } from "@inquirer/prompts";
 import { setProfile, getProfile } from "../lib/auth.ts";
-import { ApiClient } from "../lib/api.ts";
+import { ApiClient, ValidationError } from "../lib/api.ts";
 import {
   createConfigFile,
   apiParamToConfig,
@@ -274,6 +274,8 @@ export interface InitOptions {
   format?: string | boolean;
   /** Create a project-scoped SDK key during init (default: true) */
   sdkKey?: boolean;
+  /** Skip framework detection and use this framework directly */
+  framework?: string;
 }
 
 export interface InitResult {
@@ -520,7 +522,20 @@ export async function initCommand(options: InitOptions): Promise<void> {
   const detected = await detectFramework(projectDir);
   
   let stackSelection: StackSelection;
-  if (isJson) {
+  if (options.framework) {
+    // Explicit --framework flag: validate and use directly, no prompts
+    const validFrameworks = SUPPORTED_FRAMEWORKS.map((f) => f.value);
+    if (!validFrameworks.includes(options.framework as Framework)) {
+      throw new ValidationError(
+        `Invalid framework "${options.framework}". Valid options: ${validFrameworks.join(", ")}`
+      );
+    }
+    stackSelection = {
+      framework: options.framework as Framework,
+      language: detected.language,
+      skipped: false,
+    };
+  } else if (isJson) {
     // In JSON mode, use auto-detected values without prompting
     stackSelection = {
       framework: detected.framework === "unknown" ? "node" : detected.framework,

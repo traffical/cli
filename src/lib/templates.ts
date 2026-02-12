@@ -89,7 +89,9 @@ const { params } = useTraffical({
 import { createTrafficalClient } from "@traffical/node";
 
 const traffical = await createTrafficalClient({
+  orgId: process.env.TRAFFICAL_ORG_ID!,
   projectId: process.env.TRAFFICAL_PROJECT_ID!,
+  env: process.env.TRAFFICAL_ENV || "production",
   apiKey: process.env.TRAFFICAL_API_KEY!,
 });
 
@@ -174,7 +176,9 @@ const { params } = useTraffical({
 import { createTrafficalClient } from "@traffical/node";
 
 const traffical = await createTrafficalClient({
+  orgId: process.env.TRAFFICAL_ORG_ID!,
   projectId: process.env.TRAFFICAL_PROJECT_ID!,
+  env: process.env.TRAFFICAL_ENV || "production",
   apiKey: process.env.TRAFFICAL_API_KEY!,
 });
 
@@ -202,7 +206,9 @@ import { createTrafficalClient } from "@traffical/node";
 import { NextResponse } from "next/server";
 
 const traffical = await createTrafficalClient({
+  orgId: process.env.TRAFFICAL_ORG_ID!,
   projectId: process.env.TRAFFICAL_PROJECT_ID!,
+  env: process.env.TRAFFICAL_ENV || "production",
   apiKey: process.env.TRAFFICAL_API_KEY!,
 });
 
@@ -224,7 +230,9 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 const traffical = await createTrafficalClient({
+  orgId: process.env.TRAFFICAL_ORG_ID!,
   projectId: process.env.TRAFFICAL_PROJECT_ID!,
+  env: process.env.TRAFFICAL_ENV || "production",
   apiKey: process.env.TRAFFICAL_API_KEY!,
 });
 
@@ -395,7 +403,9 @@ import { createTrafficalClient } from "@traffical/node";
 import type { PageServerLoad } from "./$types";
 
 const traffical = await createTrafficalClient({
+  orgId: process.env.TRAFFICAL_ORG_ID!,
   projectId: process.env.TRAFFICAL_PROJECT_ID!,
+  env: process.env.TRAFFICAL_ENV || "production",
   apiKey: process.env.TRAFFICAL_API_KEY!,
 });
 
@@ -423,7 +433,9 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 
 const traffical = await createTrafficalClient({
+  orgId: process.env.TRAFFICAL_ORG_ID!,
   projectId: process.env.TRAFFICAL_PROJECT_ID!,
+  env: process.env.TRAFFICAL_ENV || "production",
   apiKey: process.env.TRAFFICAL_API_KEY!,
 });
 
@@ -444,7 +456,9 @@ import { createTrafficalClient } from "@traffical/node";
 import type { Handle } from "@sveltejs/kit";
 
 const traffical = await createTrafficalClient({
+  orgId: process.env.TRAFFICAL_ORG_ID!,
   projectId: process.env.TRAFFICAL_PROJECT_ID!,
+  env: process.env.TRAFFICAL_ENV || "production",
   apiKey: process.env.TRAFFICAL_API_KEY!,
 });
 
@@ -615,7 +629,9 @@ const { params } = useTraffical({
 import { createTrafficalClient } from "@traffical/node";
 
 const traffical = await createTrafficalClient({
+  orgId: process.env.TRAFFICAL_ORG_ID!,
   projectId: process.env.TRAFFICAL_PROJECT_ID!,
+  env: process.env.TRAFFICAL_ENV || "production",
   apiKey: process.env.TRAFFICAL_API_KEY!,
 });
 
@@ -643,7 +659,9 @@ export default defineEventHandler(async (event) => {
 import { createTrafficalClient } from "@traffical/node";
 
 const traffical = await createTrafficalClient({
+  orgId: process.env.TRAFFICAL_ORG_ID!,
   projectId: process.env.TRAFFICAL_PROJECT_ID!,
+  env: process.env.TRAFFICAL_ENV || "production",
   apiKey: process.env.TRAFFICAL_API_KEY!,
 });
 
@@ -691,7 +709,9 @@ Code patterns for Node.js backend projects.
 import { createTrafficalClient } from "@traffical/node";
 
 const traffical = await createTrafficalClient({
+  orgId: process.env.TRAFFICAL_ORG_ID!,
   projectId: process.env.TRAFFICAL_PROJECT_ID!,
+  env: process.env.TRAFFICAL_ENV || "production",
   apiKey: process.env.TRAFFICAL_API_KEY!,
 });
 \`\`\`
@@ -744,7 +764,9 @@ import { createTrafficalClient } from "@traffical/node";
 import express from "express";
 
 const traffical = await createTrafficalClient({
+  orgId: process.env.TRAFFICAL_ORG_ID!,
   projectId: process.env.TRAFFICAL_PROJECT_ID!,
+  env: process.env.TRAFFICAL_ENV || "production",
   apiKey: process.env.TRAFFICAL_API_KEY!,
 });
 
@@ -784,7 +806,9 @@ import { createTrafficalClient } from "@traffical/node";
 import Fastify from "fastify";
 
 const traffical = await createTrafficalClient({
+  orgId: process.env.TRAFFICAL_ORG_ID!,
   projectId: process.env.TRAFFICAL_PROJECT_ID!,
+  env: process.env.TRAFFICAL_ENV || "production",
   apiKey: process.env.TRAFFICAL_API_KEY!,
 });
 

@@ -78,7 +78,8 @@ program
 program
   .command("init")
   .description("Initialize Traffical in a project (creates .traffical/ directory)")
-  .option("--api-key <key>", "API key for authentication")
+  .option("--api-key <key>", "API key for authentication (if omitted, reads from TRAFFICAL_API_KEY env var or ~/.trafficalrc)")
+  .option("--framework <framework>", "Skip framework detection (react, nextjs, svelte, sveltekit, vue, nuxt, node)")
   .option("--no-sdk-key", "Skip automatic SDK key creation")
   .action(async (options) => {
     const globalOpts = program.opts();
@@ -89,6 +90,7 @@ program
         apiBase: globalOpts.apiBase,
         format: globalOpts.format,
         sdkKey: options.sdkKey,
+        framework: options.framework,
       });
     } catch (error) {
       handleError(error, globalOpts.format);
