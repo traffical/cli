@@ -500,10 +500,18 @@ export async function writeConfigFile(
   header += `\n`;
 
   // Generate YAML content
-  const content = stringify(config, {
+  let content = stringify(config, {
     indent: 2,
     lineWidth: 0, // Don't wrap lines
   });
+
+  // Add a hint comment above empty events block
+  if (config.events && Object.keys(config.events).length === 0) {
+    content = content.replace(
+      "events: {}\n",
+      "# Track user actions for experiment analysis (see examples below)\nevents: {}\n"
+    );
+  }
 
   // Add example section if requested and config has no parameters
   let footer = "";
@@ -523,6 +531,7 @@ export interface CreateConfigOptions {
   orgId: string;
   orgName: string;
   parameters?: Record<string, ConfigParameter>;
+  events?: Record<string, ConfigEvent>;
 }
 
 /**
@@ -532,7 +541,7 @@ export async function createConfigFile(
   configPath: string,
   options: CreateConfigOptions
 ): Promise<TrafficalConfig> {
-  const { projectId, projectName, orgId, orgName, parameters = {} } = options;
+  const { projectId, projectName, orgId, orgName, parameters = {}, events } = options;
 
   const config: TrafficalConfig = {
     version: "1.0",
@@ -542,6 +551,13 @@ export async function createConfigFile(
     },
     parameters,
   };
+
+  // Include events if provided, otherwise add an empty events block
+  if (events && Object.keys(events).length > 0) {
+    config.events = events;
+  } else {
+    config.events = {};
+  }
 
   const createdAt = new Date().toISOString();
 

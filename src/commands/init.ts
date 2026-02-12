@@ -21,6 +21,7 @@ import { ApiClient, ValidationError } from "../lib/api.ts";
 import {
   createConfigFile,
   apiParamToConfig,
+  apiEventToConfig,
   ensureTrafficalDir,
   getDefaultConfigPath,
   getAgentsPath,
@@ -30,7 +31,7 @@ import {
   TRAFFICAL_DIR,
   AGENTS_FILENAME,
 } from "../lib/config.ts";
-import type { ConfigParameter, ApiOrganization, ApiProject } from "../lib/types.ts";
+import type { ConfigParameter, ConfigEvent, ApiOrganization, ApiProject } from "../lib/types.ts";
 import {
   detectFramework,
   getFrameworkDisplayName,
@@ -229,6 +230,10 @@ export interface InitOptions {
   sdkKey?: boolean;
   /** Skip framework detection and use this framework directly */
   framework?: string;
+  /** Project ID to use (skips project selection prompt) */
+  project?: string;
+  /** Auto-accept detected defaults, no interactive prompts */
+  yes?: boolean;
 }
 
 export interface InitResult {
@@ -328,7 +333,7 @@ export async function initCommand(options: InitOptions): Promise<void> {
 
   // Prompt for API key if we don't have a valid one
   if (!apiKey) {
-    if (isJson) {
+    if (isJson || options.yes) {
       throw new Error(
         "No valid API key found. Provide one with --api-key <key>"
       );
@@ -367,6 +372,10 @@ export async function initCommand(options: InitOptions): Promise<void> {
         console.log("Possible issues:");
         console.log("  • Key may have been revoked or expired");
         console.log("  • Key may have been copied incorrectly\n");
+
+        if (options.yes) {
+          throw new Error("API key validation failed");
+        }
 
         const tryAgain = await confirm({
           message: "Would you like to try a different API key?",
@@ -416,7 +425,13 @@ export async function initCommand(options: InitOptions): Promise<void> {
       console.log(chalk.dim(`Organization: ${selectedOrg.name}\n`));
     }
 
-    if (validation.projectId) {
+    if (options.project) {
+      // Explicit --project flag
+      selectedProject = await client.getProject(options.project);
+      if (!isJson) {
+        console.log(chalk.dim(`Project: ${selectedProject.name}\n`));
+      }
+    } else if (validation.projectId) {
       // Project-scoped API key - use that project
       if (!isJson) {
         console.log(chalk.dim("Using project from API key..."));
@@ -435,9 +450,20 @@ export async function initCommand(options: InitOptions): Promise<void> {
         );
       }
 
-      selectedProject = await selectProject(projects);
-      if (!isJson) {
-        console.log(chalk.green(`✓ Selected project: ${selectedProject.name}\n`));
+      if (projects.length === 1) {
+        selectedProject = projects[0]!;
+        if (!isJson) {
+          console.log(chalk.dim(`Using project: ${selectedProject.name}\n`));
+        }
+      } else if (options.yes) {
+        throw new ValidationError(
+          `Multiple projects found in ${selectedOrg.name}. Use --project <id> to specify.`
+        );
+      } else {
+        selectedProject = await selectProject(projects);
+        if (!isJson) {
+          console.log(chalk.green(`✓ Selected project: ${selectedProject.name}\n`));
+        }
       }
     }
   } else {
@@ -448,23 +474,52 @@ export async function initCommand(options: InitOptions): Promise<void> {
       throw new Error("No organizations found. Create one at https://app.traffical.io");
     }
 
-    selectedOrg = await selectOrganization(orgs);
-    if (!isJson) {
-      console.log(chalk.green(`✓ Selected organization: ${selectedOrg.name}\n`));
-    }
-
-    // List projects and let user select
-    const projects = await client.listProjects(selectedOrg.id);
-
-    if (projects.length === 0) {
-      throw new Error(
-        `No projects found in ${selectedOrg.name}. Create one at https://app.traffical.io`
+    if (orgs.length === 1) {
+      selectedOrg = orgs[0]!;
+      if (!isJson) {
+        console.log(chalk.dim(`Using organization: ${selectedOrg.name}\n`));
+      }
+    } else if (options.yes) {
+      throw new ValidationError(
+        "Multiple organizations found. Use an org-scoped API key or select interactively."
       );
+    } else {
+      selectedOrg = await selectOrganization(orgs);
+      if (!isJson) {
+        console.log(chalk.green(`✓ Selected organization: ${selectedOrg.name}\n`));
+      }
     }
 
-    selectedProject = await selectProject(projects);
-    if (!isJson) {
-      console.log(chalk.green(`✓ Selected project: ${selectedProject.name}\n`));
+    // Select project
+    if (options.project) {
+      selectedProject = await client.getProject(options.project);
+      if (!isJson) {
+        console.log(chalk.dim(`Project: ${selectedProject.name}\n`));
+      }
+    } else {
+      const projects = await client.listProjects(selectedOrg.id);
+
+      if (projects.length === 0) {
+        throw new Error(
+          `No projects found in ${selectedOrg.name}. Create one at https://app.traffical.io`
+        );
+      }
+
+      if (projects.length === 1) {
+        selectedProject = projects[0]!;
+        if (!isJson) {
+          console.log(chalk.dim(`Using project: ${selectedProject.name}\n`));
+        }
+      } else if (options.yes) {
+        throw new ValidationError(
+          `Multiple projects found in ${selectedOrg.name}. Use --project <id> to specify.`
+        );
+      } else {
+        selectedProject = await selectProject(projects);
+        if (!isJson) {
+          console.log(chalk.green(`✓ Selected project: ${selectedProject.name}\n`));
+        }
+      }
     }
   }
 
@@ -486,8 +541,8 @@ export async function initCommand(options: InitOptions): Promise<void> {
       language: detected.language,
       skipped: false,
     };
-  } else if (isJson) {
-    // In JSON mode, use auto-detected values without prompting
+  } else if (isJson || options.yes) {
+    // In JSON or --yes mode, use auto-detected values without prompting
     stackSelection = {
       framework: detected.framework === "unknown" ? "node" : detected.framework,
       language: detected.language,
@@ -529,6 +584,19 @@ export async function initCommand(options: InitOptions): Promise<void> {
     configParams[key] = config;
   }
 
+  // Get existing synced event definitions
+  const eventDefs = await client.listEventDefinitions(selectedProject.id, { synced: true });
+  const configEvents: Record<string, ConfigEvent> = {};
+  for (const event of eventDefs) {
+    const { name, config } = apiEventToConfig({
+      name: event.name,
+      valueType: event.valueType,
+      unit: event.unit,
+      description: event.description,
+    });
+    configEvents[name] = config;
+  }
+
   // Create .traffical directory and files
   if (!isJson) {
     console.log(chalk.bold("Creating Traffical Configuration"));
@@ -546,12 +614,16 @@ export async function initCommand(options: InitOptions): Promise<void> {
     orgId: selectedOrg.id,
     orgName: selectedOrg.name,
     parameters: configParams,
+    events: configEvents,
   });
 
   if (!isJson) {
     console.log(chalk.green(`✓ Created ${TRAFFICAL_DIR}/config.yaml`));
     if (parameters.length > 0) {
       console.log(chalk.dim(`  Imported ${parameters.length} synced parameter${parameters.length !== 1 ? "s" : ""}`));
+    }
+    if (eventDefs.length > 0) {
+      console.log(chalk.dim(`  Imported ${eventDefs.length} synced event${eventDefs.length !== 1 ? "s" : ""}`));
     }
   }
 
