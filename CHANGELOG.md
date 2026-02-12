@@ -1,5 +1,11 @@
 # @traffical/cli
 
+## 0.5.0
+
+### Minor Changes
+
+- 358a3b6: Add --yes and --project flags for fully non-interactive init, import events during init and scaffold empty events block in config.yaml
+
 ## 0.4.0
 
 ### Minor Changes
