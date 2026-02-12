@@ -79,6 +79,7 @@ program
   .command("init")
   .description("Initialize Traffical in a project (creates .traffical/ directory)")
   .option("--api-key <key>", "API key for authentication")
+  .option("--no-sdk-key", "Skip automatic SDK key creation")
   .action(async (options) => {
     const globalOpts = program.opts();
     try {
@@ -87,6 +88,7 @@ program
         apiKey: options.apiKey,
         apiBase: globalOpts.apiBase,
         format: globalOpts.format,
+        sdkKey: options.sdkKey,
       });
     } catch (error) {
       handleError(error, globalOpts.format);

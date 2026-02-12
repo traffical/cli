@@ -329,5 +329,25 @@ export class ApiClient {
   async syncEventDefinitions(projectId: string, request: EventSyncRequest): Promise<EventSyncResponse> {
     return this.request<EventSyncResponse>("POST", `/v1/projects/${projectId}/events/sync`, request);
   }
+
+  // ==========================================================================
+  // API Keys
+  // ==========================================================================
+
+  /**
+   * Create an API key for an organization.
+   * Requires mgmt:write scope on the calling key.
+   */
+  async createApiKey(orgId: string, options: {
+    name: string;
+    projectId?: string;
+    scopes: string[];
+  }): Promise<{ key: string; apiKey: { id: string; name: string; keyPrefix: string; scopes: string[] } }> {
+    return this.request("POST", `/v1/orgs/${orgId}/api-keys`, {
+      name: options.name,
+      projectId: options.projectId,
+      scopes: options.scopes,
+    });
+  }
 }
 

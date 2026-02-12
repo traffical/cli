@@ -255,6 +255,26 @@ export async function ensureTrafficalDir(baseDir: string = process.cwd()): Promi
 }
 
 /**
+ * Ensure .traffical/.gitignore exists and contains ".env".
+ * Only creates or updates the file if .env is not already listed.
+ */
+export async function ensureTrafficalGitignore(baseDir: string): Promise<void> {
+  const gitignorePath = join(baseDir, TRAFFICAL_DIR, ".gitignore");
+
+  try {
+    const existing = await readFile(gitignorePath, "utf-8");
+    // Check if .env is already in the gitignore
+    const lines = existing.split("\n").map((l) => l.trim());
+    if (!lines.includes(".env")) {
+      await writeFile(gitignorePath, existing.trimEnd() + "\n.env\n", "utf-8");
+    }
+  } catch {
+    // File doesn't exist — create it
+    await writeFile(gitignorePath, "# Secrets - do not commit\n.env\n", "utf-8");
+  }
+}
+
+/**
  * Get the default config file path (.traffical/config.yaml).
  *
  * @param baseDir - The base directory (defaults to cwd)
