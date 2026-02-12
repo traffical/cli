@@ -1,6 +1,6 @@
 {
   "name": "@traffical/cli",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Traffical CLI - config-as-code for your experimentation platform",
   "type": "module",
   "bin": {
