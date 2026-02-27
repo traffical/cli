@@ -15,6 +15,7 @@ import type {
   ConfigEvent,
   ParameterType,
   ParameterValue,
+  ParameterConstraints,
   EventValueType,
 } from "./types.ts";
 
@@ -608,6 +609,7 @@ export function apiParamToConfig(param: {
   defaultValue: ParameterValue;
   namespace?: string;
   description?: string;
+  constraints?: ParameterConstraints;
 }): { key: string; config: ConfigParameter } {
   const config: ConfigParameter = {
     type: param.type,
@@ -620,6 +622,17 @@ export function apiParamToConfig(param: {
 
   if (param.description) {
     config.description = param.description;
+  }
+
+  if (param.constraints && Object.keys(param.constraints).length > 0) {
+    const c: ParameterConstraints = {};
+    if (param.constraints.min !== undefined) c.min = param.constraints.min;
+    if (param.constraints.max !== undefined) c.max = param.constraints.max;
+    if (param.constraints.pattern) c.pattern = param.constraints.pattern;
+    if (param.constraints.allowedValues?.length) c.allowedValues = param.constraints.allowedValues;
+    if (Object.keys(c).length > 0) {
+      config.constraints = c;
+    }
   }
 
   return { key: param.key, config };
@@ -635,6 +648,7 @@ export function configParamToApi(key: string, param: ConfigParameter) {
     default: param.default,
     namespace: param.namespace,
     description: param.description,
+    constraints: param.constraints,
   };
 }
 

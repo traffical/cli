@@ -66,6 +66,35 @@
         "description": {
           "type": "string",
           "description": "Human-readable description of the parameter"
+        },
+        "constraints": {
+          "type": "object",
+          "description": "Optional constraints for parameter values",
+          "properties": {
+            "min": {
+              "type": "number",
+              "description": "Minimum value (numbers only)"
+            },
+            "max": {
+              "type": "number",
+              "description": "Maximum value (numbers only)"
+            },
+            "pattern": {
+              "type": "string",
+              "description": "Regex pattern (strings only)"
+            },
+            "allowedValues": {
+              "type": "array",
+              "description": "Restrict to specific values (strings/numbers)",
+              "items": {
+                "oneOf": [
+                  { "type": "string" },
+                  { "type": "number" }
+                ]
+              }
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false,
@@ -154,8 +183,21 @@
         },
         "pricing.discount.percentage": {
           "type": "number",
-          "default": 0,
-          "namespace": "pricing"
+          "default": 10,
+          "namespace": "pricing",
+          "constraints": {
+            "min": 0,
+            "max": 100
+          }
+        },
+        "catalog.ranking_algo": {
+          "type": "string",
+          "default": "default",
+          "namespace": "catalog",
+          "description": "Which ranking algorithm to use",
+          "constraints": {
+            "allowedValues": ["default", "popularity", "random"]
+          }
         },
         "ui.theme.config": {
           "type": "json",

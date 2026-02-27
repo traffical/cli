@@ -25,6 +25,20 @@ export interface TrafficalConfig {
 }
 
 /**
+ * Optional constraints for parameter values.
+ */
+export interface ParameterConstraints {
+  /** For numbers: minimum value */
+  min?: number;
+  /** For numbers: maximum value */
+  max?: number;
+  /** For strings: regex pattern */
+  pattern?: string;
+  /** For strings/numbers: allowed values (enum) */
+  allowedValues?: ParameterValue[];
+}
+
+/**
  * Parameter definition in traffical.yaml
  */
 export interface ConfigParameter {
@@ -32,6 +46,7 @@ export interface ConfigParameter {
   default: ParameterValue;
   namespace?: string;
   description?: string;
+  constraints?: ParameterConstraints;
 }
 
 /**
@@ -55,6 +70,7 @@ export interface ApiParameter {
   type: ParameterType;
   defaultValue: ParameterValue;
   description?: string;
+  constraints?: ParameterConstraints;
   synced?: boolean;
   syncedSource?: string;
   syncedAt?: string;
@@ -72,6 +88,7 @@ export interface SyncRequest {
     default: ParameterValue;
     namespace?: string;
     description?: string;
+    constraints?: ParameterConstraints;
   }>;
   source?: string;
 }
@@ -90,6 +107,7 @@ export interface SyncResponse {
     defaultValue: ParameterValue;
     namespace?: string;
     description?: string;
+    constraints?: ParameterConstraints;
   }>;
   summary: {
     totalInConfig: number;

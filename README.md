@@ -101,6 +101,14 @@ parameters:
     default: false
     namespace: pricing
 
+  catalog.ranking_algo:
+    type: string
+    default: "default"
+    namespace: catalog
+    description: Which ranking algorithm to use
+    constraints:
+      allowedValues: ["default", "popularity", "random"]
+
 events:
   purchase:
     valueType: currency
@@ -120,6 +128,45 @@ events:
 | `number` | Any number |
 | `boolean` | `true` or `false` |
 | `json` | Object or array |
+
+### Parameter Constraints
+
+Parameters can have optional constraints that restrict their values. Constraints are synced to Traffical and shown in the dashboard UI.
+
+```yaml
+parameters:
+  catalog.ranking_algo:
+    type: string
+    default: "default"
+    namespace: catalog
+    description: Which ranking algorithm to use
+    constraints:
+      allowedValues: ["default", "popularity", "random"]
+
+  pricing.discount_pct:
+    type: number
+    default: 10
+    namespace: pricing
+    constraints:
+      min: 0
+      max: 100
+
+  checkout.promo_code:
+    type: string
+    default: ""
+    namespace: checkout
+    constraints:
+      pattern: "^[A-Z0-9]{4,10}$"
+```
+
+| Constraint | Applies To | Description |
+|------------|-----------|-------------|
+| `allowedValues` | `string`, `number` | Restrict to specific values (enum-like) |
+| `min` | `number` | Minimum allowed value |
+| `max` | `number` | Maximum allowed value |
+| `pattern` | `string` | Regex pattern to validate values |
+
+When `allowedValues` are set, the Traffical dashboard renders a dropdown selector instead of a free-text input for default values and policy overrides.
 
 ### Events
 
