@@ -167,6 +167,7 @@ export async function syncConfig(options: {
       defaultValue: param.defaultValue,
       namespace: namespace?.name,
       description: param.description,
+      constraints: param.constraints,
     });
 
     if (!config.parameters[key]) {

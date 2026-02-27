@@ -96,6 +96,7 @@ export async function pullConfig(options: {
       defaultValue: param.defaultValue,
       namespace: namespace?.name,
       description: param.description,
+      constraints: param.constraints,
     });
 
     const existing = config.parameters[key];

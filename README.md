@@ -82,6 +82,8 @@ traffical pull
 
 ## Config File Format
 
+Parameters are organized by **namespace**. The `main` namespace lives under the top-level `parameters:` key, while other namespaces are grouped under `namespaces:` using their **local key** (without the namespace prefix).
+
 ```yaml
 # .traffical/config.yaml
 version: "1.0"
@@ -89,25 +91,34 @@ project:
   id: proj_xxx
   orgId: org_xxx
 
+# "main" namespace parameters (no prefix)
 parameters:
-  checkout.button.color:
-    type: string
-    default: "#FF6600"
-    namespace: checkout
-    description: Primary CTA button color
-
-  pricing.discount.enabled:
+  global_feature_enabled:
     type: boolean
     default: false
-    namespace: pricing
+    description: Kill-switch for global feature
 
-  catalog.ranking_algo:
-    type: string
-    default: "default"
-    namespace: catalog
-    description: Which ranking algorithm to use
-    constraints:
-      allowedValues: ["default", "popularity", "random"]
+# Other namespaces — keys are local (prefix is implicit)
+namespaces:
+  checkout:
+    parameters:
+      button.color:           # full key: checkout.button.color
+        type: string
+        default: "#FF6600"
+        description: Primary CTA button color
+  catalog:
+    parameters:
+      ranking_algo:            # full key: catalog.ranking_algo
+        type: string
+        default: "default"
+        description: Which ranking algorithm to use
+        constraints:
+          allowedValues: ["default", "popularity", "random"]
+  pricing:
+    parameters:
+      discount.enabled:        # full key: pricing.discount.enabled
+        type: boolean
+        default: false
 
 events:
   purchase:
@@ -119,6 +130,8 @@ events:
     valueType: count
     description: User adds item to cart
 ```
+
+> **Backwards compatibility:** The flat format (all parameters under `parameters:` with an explicit `namespace` field) is still accepted on read. The CLI normalizes it internally. On write (`pull`/`sync`), the grouped format above is always produced.
 
 ### Parameter Types
 
@@ -134,29 +147,30 @@ events:
 Parameters can have optional constraints that restrict their values. Constraints are synced to Traffical and shown in the dashboard UI.
 
 ```yaml
-parameters:
-  catalog.ranking_algo:
-    type: string
-    default: "default"
-    namespace: catalog
-    description: Which ranking algorithm to use
-    constraints:
-      allowedValues: ["default", "popularity", "random"]
-
-  pricing.discount_pct:
-    type: number
-    default: 10
-    namespace: pricing
-    constraints:
-      min: 0
-      max: 100
-
-  checkout.promo_code:
-    type: string
-    default: ""
-    namespace: checkout
-    constraints:
-      pattern: "^[A-Z0-9]{4,10}$"
+namespaces:
+  catalog:
+    parameters:
+      ranking_algo:
+        type: string
+        default: "default"
+        description: Which ranking algorithm to use
+        constraints:
+          allowedValues: ["default", "popularity", "random"]
+  pricing:
+    parameters:
+      discount_pct:
+        type: number
+        default: 10
+        constraints:
+          min: 0
+          max: 100
+  checkout:
+    parameters:
+      promo_code:
+        type: string
+        default: ""
+        constraints:
+          pattern: "^[A-Z0-9]{4,10}$"
 ```
 
 | Constraint | Applies To | Description |
@@ -180,7 +194,10 @@ project:
   orgId: org_xxx
 
 parameters:
-  # ... your parameters ...
+  # ... main namespace parameters ...
+
+namespaces:
+  # ... other namespace parameters ...
 
 events:
   purchase:
@@ -223,7 +240,7 @@ events:
 
 The CLI validates your config against a JSON Schema before pushing:
 
-- Required fields (`version`, `project.id`, `project.orgId`, `parameters`)
+- Required fields (`version`, `project.id`, `project.orgId`)
 - Type consistency (e.g., `type: boolean` must have a boolean `default`)
 - ID format (`proj_*` and `org_*` prefixes)
 - Event definitions (valid `valueType` values)

@@ -36,6 +36,28 @@
         "$ref": "#/definitions/parameter"
       }
     },
+    "namespaces": {
+      "type": "object",
+      "description": "Namespace-grouped parameters (alternative to flat parameters)",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "Human-readable description of the namespace"
+          },
+          "parameters": {
+            "type": "object",
+            "description": "Parameters belonging to this namespace (keyed by local name)",
+            "additionalProperties": {
+              "$ref": "#/definitions/parameter"
+            }
+          }
+        },
+        "required": ["parameters"],
+        "additionalProperties": false
+      }
+    },
     "events": {
       "type": "object",
       "description": "Event definitions synced from this config file",

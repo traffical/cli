@@ -21,6 +21,10 @@ export interface TrafficalConfig {
     orgId: string;
   };
   parameters: Record<string, ConfigParameter>;
+  namespaces?: Record<string, {
+    description?: string;
+    parameters: Record<string, ConfigParameter>;
+  }>;
   events?: Record<string, ConfigEvent>;
 }
 
@@ -116,6 +120,7 @@ export interface SyncResponse {
     unchanged: number;
     remoteOnly: number;
   };
+  warnings?: string[];
 }
 
 /**

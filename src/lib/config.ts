@@ -380,8 +380,28 @@ export function isLegacyConfigPath(configPath: string): boolean {
 }
 
 /**
+ * Normalize a parsed config by flattening namespaces: blocks into the flat parameters map.
+ * Parameters inside `namespaces.{nsName}.parameters.{localKey}` are merged into
+ * `parameters` with the full qualified key (`{nsName}.{localKey}`, or just `{localKey}` for `main`).
+ */
+function normalizeConfig(raw: TrafficalConfig): TrafficalConfig {
+  if (!raw.namespaces) return raw;
+
+  const merged = { ...raw.parameters };
+  for (const [nsName, nsBlock] of Object.entries(raw.namespaces)) {
+    for (const [localKey, param] of Object.entries(nsBlock.parameters)) {
+      const fullKey = nsName === "main" ? localKey : `${nsName}.${localKey}`;
+      merged[fullKey] = { ...param, namespace: nsName };
+    }
+  }
+
+  return { ...raw, parameters: merged, namespaces: undefined };
+}
+
+/**
  * Read and parse a traffical.yaml file.
  * Validates against JSON Schema before returning.
+ * Normalizes grouped namespaces: blocks into the flat parameters map.
  */
 export async function readConfigFile(configPath: string): Promise<TrafficalConfig> {
   const content = await readFile(configPath, "utf-8");
@@ -394,7 +414,7 @@ export async function readConfigFile(configPath: string): Promise<TrafficalConfi
     throw new Error(`Invalid traffical.yaml at ${configPath}${errorDetails}`);
   }
 
-  return parsed as TrafficalConfig;
+  return normalizeConfig(parsed as TrafficalConfig);
 }
 
 /**
@@ -472,7 +492,57 @@ function generateExampleSection(): string {
 }
 
 /**
+ * Build the grouped config object for serialization.
+ * Groups parameters by namespace: `main` parameters go into top-level `parameters:`,
+ * all others go into `namespaces: { nsName: { parameters: { localKey: ... } } }`.
+ * Strips the `namespace` field from individual parameter entries in grouped blocks.
+ */
+function buildGroupedConfig(config: TrafficalConfig): TrafficalConfig {
+  const mainParams: Record<string, ConfigParameter> = {};
+  const nsBuckets: Record<string, Record<string, ConfigParameter>> = {};
+
+  for (const [fullKey, param] of Object.entries(config.parameters)) {
+    const nsName = param.namespace ?? "main";
+
+    if (nsName === "main") {
+      // Strip namespace field for main params
+      const { namespace: _, ...rest } = param;
+      mainParams[fullKey] = rest;
+    } else {
+      // Derive local key by stripping prefix
+      const prefix = nsName + ".";
+      const localKey = fullKey.startsWith(prefix) ? fullKey.slice(prefix.length) : fullKey;
+
+      if (!nsBuckets[nsName]) nsBuckets[nsName] = {};
+      // Strip namespace field — it's implicit from the block
+      const { namespace: _, ...rest } = param;
+      nsBuckets[nsName][localKey] = rest;
+    }
+  }
+
+  const grouped: TrafficalConfig = {
+    version: config.version,
+    project: config.project,
+    parameters: mainParams,
+  };
+
+  if (Object.keys(nsBuckets).length > 0) {
+    grouped.namespaces = {};
+    for (const [nsName, params] of Object.entries(nsBuckets).sort(([a], [b]) => a.localeCompare(b))) {
+      grouped.namespaces[nsName] = { parameters: params };
+    }
+  }
+
+  if (config.events) {
+    grouped.events = config.events;
+  }
+
+  return grouped;
+}
+
+/**
  * Write a traffical.yaml file.
+ * Outputs the grouped namespaces: format.
  */
 export async function writeConfigFile(
   configPath: string,
@@ -500,14 +570,17 @@ export async function writeConfigFile(
   header += `# Learn more: https://docs.traffical.io/config-as-code\n`;
   header += `\n`;
 
+  // Build the grouped config for output
+  const outputConfig = buildGroupedConfig(config);
+
   // Generate YAML content
-  let content = stringify(config, {
+  let content = stringify(outputConfig, {
     indent: 2,
     lineWidth: 0, // Don't wrap lines
   });
 
   // Add a hint comment above empty events block
-  if (config.events && Object.keys(config.events).length === 0) {
+  if (outputConfig.events && Object.keys(outputConfig.events).length === 0) {
     content = content.replace(
       "events: {}\n",
       "# Track user actions for experiment analysis (see examples below)\nevents: {}\n"
@@ -515,8 +588,9 @@ export async function writeConfigFile(
   }
 
   // Add example section if requested and config has no parameters
+  const totalParams = Object.keys(config.parameters).length;
   let footer = "";
-  if (includeExample && Object.keys(config.parameters).length === 0) {
+  if (includeExample && totalParams === 0) {
     footer = generateExampleSection();
   }
 
@@ -602,6 +676,7 @@ export async function removeParameter(configPath: string, key: string): Promise<
 
 /**
  * Convert API parameter to config format.
+ * Returns the full key, a local key (prefix stripped), namespace name, and config object.
  */
 export function apiParamToConfig(param: {
   key: string;
@@ -610,14 +685,27 @@ export function apiParamToConfig(param: {
   namespace?: string;
   description?: string;
   constraints?: ParameterConstraints;
-}): { key: string; config: ConfigParameter } {
+}): { key: string; localKey: string; namespace: string; config: ConfigParameter } {
+  const nsName = param.namespace ?? "main";
+
+  // Derive local key by stripping namespace prefix
+  let localKey = param.key;
+  if (nsName !== "main") {
+    const prefix = nsName + ".";
+    if (param.key.startsWith(prefix)) {
+      localKey = param.key.slice(prefix.length);
+    }
+  }
+
   const config: ConfigParameter = {
     type: param.type,
     default: param.defaultValue,
   };
 
-  if (param.namespace && param.namespace !== "main") {
-    config.namespace = param.namespace;
+  // In the grouped format, `namespace` is implicit from the block, so don't set it on the config.
+  // But keep it for backward compat with callers that still need the flat format.
+  if (nsName !== "main") {
+    config.namespace = nsName;
   }
 
   if (param.description) {
@@ -635,7 +723,7 @@ export function apiParamToConfig(param: {
     }
   }
 
-  return { key: param.key, config };
+  return { key: param.key, localKey, namespace: nsName, config };
 }
 
 /**
