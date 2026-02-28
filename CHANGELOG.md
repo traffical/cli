@@ -1,5 +1,15 @@
 # @traffical/cli
 
+## 0.7.0
+
+### Minor Changes
+
+- b03b3b6: Handle parameter states, add --prune option to archive orphaned synced parameters
+
+### Patch Changes
+
+- 4b5cd76: streamline config reading and validation in push command
+
 ## 0.6.0
 
 ### Minor Changes
