@@ -38,6 +38,7 @@ export interface SyncOptions {
   apiBase?: string;
   all?: boolean;
   dryRun?: boolean;
+  prune?: boolean;
   format?: string | boolean;
 }
 
@@ -71,6 +72,7 @@ export interface SyncResult {
   pull: {
     added: string[];
   };
+  pruned: string[];
   conflicts: ConflictInfo[];
   events: {
     push: {
@@ -94,6 +96,7 @@ export async function syncConfig(options: {
   configPath?: string;
   apiBase?: string;
   dryRun?: boolean;
+  prune?: boolean;
 }): Promise<SyncResult> {
   const isDryRun = options.dryRun || false;
 
@@ -280,6 +283,25 @@ export async function syncConfig(options: {
     await writeConfigFile(configPath, config);
   }
 
+  // Handle --prune: archive orphaned synced parameters
+  const localKeySet = new Set(Object.keys(config.parameters));
+  const orphanedParams = remoteParams.filter((p) => p.synced && !localKeySet.has(p.key));
+  const pruned: string[] = [];
+
+  if (options.prune && orphanedParams.length > 0 && !isDryRun) {
+    const orphanIds = orphanedParams.map((p) => p.id);
+    const bulkResult = await client.bulkUpdateParameters(
+      projectId,
+      { action: "archive", parameterIds: orphanIds },
+      false
+    );
+    if (bulkResult.succeeded) {
+      pruned.push(...bulkResult.succeeded.map((p) => p.key));
+    }
+  } else if (options.prune && orphanedParams.length > 0 && isDryRun) {
+    pruned.push(...orphanedParams.map((p) => p.key));
+  }
+
   return {
     success: true,
     project: { id: project.id, name: project.name },
@@ -293,6 +315,7 @@ export async function syncConfig(options: {
     pull: {
       added: newFromRemote,
     },
+    pruned,
     conflicts,
     events: {
       push: {
@@ -435,6 +458,12 @@ function printSyncHuman(result: SyncResult): void {
     }
   }
 
+  if (result.pruned.length > 0) {
+    console.log(chalk.green(`🗄 ${result.dryRun ? "Would archive" : "Archived"} ${result.pruned.length} orphaned synced parameter${result.pruned.length !== 1 ? "s" : ""}:`));
+    result.pruned.forEach((key) => console.log(chalk.dim(`  ${key}`)));
+    console.log();
+  }
+
   if (result.dryRun) {
     console.log(chalk.cyan("✓ Dry run complete - no changes made"));
   } else {
@@ -525,6 +554,7 @@ async function syncAll(options: SyncOptions): Promise<void> {
       configPath,
       apiBase: options.apiBase,
       dryRun: isDryRun,
+      prune: options.prune,
     });
 
     results.push(result);

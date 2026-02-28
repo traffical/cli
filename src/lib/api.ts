@@ -15,6 +15,7 @@ import type {
   SyncResponse,
   EventSyncRequest,
   EventSyncResponse,
+  BulkParameterResponse,
 } from "./types.ts";
 
 /**
@@ -299,6 +300,27 @@ export class ApiClient {
    */
   async syncParameters(projectId: string, request: SyncRequest): Promise<SyncResponse> {
     return this.request<SyncResponse>("POST", `/v1/projects/${projectId}/sync`, request);
+  }
+
+  // ==========================================================================
+  // Bulk Parameter Operations
+  // ==========================================================================
+
+  async bulkUpdateParameters(
+    projectId: string,
+    data: {
+      action: "move_layer" | "archive" | "unarchive" | "change_namespace";
+      parameterIds: string[];
+      targetLayerId?: string;
+      targetNamespaceId?: string;
+    },
+    dryRun: boolean = false
+  ): Promise<BulkParameterResponse> {
+    return this.request<BulkParameterResponse>(
+      "POST",
+      `/v1/projects/${projectId}/parameters/bulk${dryRun ? "?dryRun=true" : ""}`,
+      data
+    );
   }
 
   // ==========================================================================

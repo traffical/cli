@@ -122,6 +122,7 @@ program
   .command("push")
   .description("Push local config parameters to Traffical")
   .option("-n, --dry-run", "Validate and show changes without pushing")
+  .option("--prune", "Archive orphaned synced parameters that are no longer in the config file")
   .action(async (options) => {
     const globalOpts = program.opts();
     try {
@@ -130,6 +131,7 @@ program
         configPath: globalOpts.config,
         apiBase: globalOpts.apiBase,
         dryRun: options.dryRun,
+        prune: options.prune,
         format: globalOpts.format,
       });
     } catch (error) {
@@ -143,6 +145,7 @@ program
   .description("Sync config with Traffical (local wins: pushes your changes, adds new remote params)")
   .option("--all", "Sync all config files in the repository")
   .option("-n, --dry-run", "Validate and show changes without syncing")
+  .option("--prune", "Archive orphaned synced parameters that are no longer in the config file")
   .action(async (options) => {
     const globalOpts = program.opts();
     try {
@@ -152,6 +155,7 @@ program
         apiBase: globalOpts.apiBase,
         all: options.all,
         dryRun: options.dryRun,
+        prune: options.prune,
         format: globalOpts.format,
       });
     } catch (error) {

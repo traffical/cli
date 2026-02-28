@@ -26,6 +26,7 @@ export interface PushOptions {
   configPath?: string;
   apiBase?: string;
   dryRun?: boolean;
+  prune?: boolean;
   format?: string | boolean;
 }
 
@@ -41,6 +42,7 @@ export interface PushResult {
   updated: string[];
   unchanged: string[];
   remoteOnly: string[];
+  pruned: string[];
   total: number;
   events: {
     created: string[];
@@ -59,6 +61,7 @@ export async function pushConfig(options: {
   configPath?: string;
   apiBase?: string;
   dryRun?: boolean;
+  prune?: boolean;
 }): Promise<PushResult> {
   const isDryRun = options.dryRun || false;
 
@@ -120,6 +123,7 @@ export async function pushConfig(options: {
       updated: [],
       unchanged: [],
       remoteOnly: [],
+      pruned: [],
       total: 0,
       events: {
         created: [],
@@ -188,6 +192,7 @@ export async function pushConfig(options: {
       updated,
       unchanged,
       remoteOnly,
+      pruned: options.prune ? remoteOnly : [],
       total: parameters.length,
       events: {
         created: eventsCreated,
@@ -219,6 +224,20 @@ export async function pushConfig(options: {
     });
   }
 
+  // Handle --prune: archive orphaned synced parameters
+  const pruned: string[] = [];
+  if (options.prune && result.remoteOnly.length > 0) {
+    const orphanIds = result.remoteOnly.map((p) => p.id);
+    const bulkResult = await client.bulkUpdateParameters(
+      projectId,
+      { action: "archive", parameterIds: orphanIds },
+      false
+    );
+    if (bulkResult.succeeded) {
+      pruned.push(...bulkResult.succeeded.map((p) => p.key));
+    }
+  }
+
   return {
     success: true,
     project: { id: project.id, name: project.name },
@@ -228,6 +247,7 @@ export async function pushConfig(options: {
     updated: result.updated.map((p) => p.key),
     unchanged: result.unchanged.map((p) => p.key),
     remoteOnly: result.remoteOnly.map((p) => p.key),
+    pruned,
     total: parameters.length,
     events: {
       created: eventResult.created.map((e) => e.name),
@@ -278,12 +298,16 @@ function printPushHuman(result: PushResult): void {
     console.log();
   }
 
-  if (result.remoteOnly.length > 0) {
-    console.log(chalk.yellow("⚠ Remote-only synced parameters (not in your config):"));
+  if (result.pruned.length > 0) {
+    console.log(chalk.green(`🗄 Archived ${result.pruned.length} orphaned synced parameter${result.pruned.length !== 1 ? "s" : ""}:`));
+    result.pruned.forEach((key) => console.log(chalk.dim(`  ${key}`)));
+    console.log();
+  } else if (result.remoteOnly.length > 0) {
+    console.log(chalk.yellow(`⚠ ${result.remoteOnly.length} orphaned synced parameter${result.remoteOnly.length !== 1 ? "s" : ""} (no longer in your config):`));
     result.remoteOnly.forEach((key) => console.log(chalk.dim(`  ${key}`)));
     console.log();
     console.log(
-      chalk.dim("Run 'traffical pull' to add these to your config, or they will remain synced.")
+      chalk.dim("Use --prune to archive them, or 'traffical pull' to add them back to your config.")
     );
     console.log();
   }
@@ -347,7 +371,7 @@ export async function pushCommand(options: PushOptions): Promise<void> {
   }
 
   try {
-    const result = await pushConfig(options);
+    const result = await pushConfig({ ...options, prune: options.prune });
 
     if (isJson) {
       console.log(JSON.stringify(result, null, 2));

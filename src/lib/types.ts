@@ -274,3 +274,22 @@ export interface EventSyncResponse {
   };
 }
 
+/**
+ * Bulk parameter operations response
+ */
+export interface BulkParameterResponse {
+  batchId: string;
+  action: string;
+  dryRun: boolean;
+  valid: Array<{ id: string; key: string }>;
+  blocked: Array<{
+    id: string;
+    key: string;
+    reason: string;
+    blockedBy?: { type: string; id: string; name: string };
+  }>;
+  warnings: Array<{ id: string; key: string; warning: string }>;
+  succeeded?: Array<{ id: string; key: string }>;
+  failed?: Array<{ id: string; key: string; error: string }>;
+}
+
