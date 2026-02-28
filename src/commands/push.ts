@@ -7,19 +7,15 @@
  */
 
 import chalk from "chalk";
-import { parse } from "yaml";
-import { readFile } from "fs/promises";
 import {
   findConfigFile,
+  readConfigFile,
   configParamToApi,
   configEventToApi,
-  validateConfig,
-  formatValidationErrors,
   TRAFFICAL_DIR,
 } from "../lib/config.ts";
 import { ApiClient, ValidationError } from "../lib/api.ts";
 import { parseFormatOption } from "../lib/output.ts";
-import type { TrafficalConfig } from "../lib/types.ts";
 
 export interface PushOptions {
   profile?: string;
@@ -74,27 +70,15 @@ export async function pushConfig(options: {
     );
   }
 
-  // Read and parse YAML
-  let parsedConfig: unknown;
-
+  // Read, validate, and normalize config (flattens namespaces into parameters)
+  let config;
   try {
-    const rawContent = await readFile(configPath, "utf-8");
-    parsedConfig = parse(rawContent);
+    config = await readConfigFile(configPath);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    throw new ValidationError(`Failed to parse ${configPath}: ${message}`);
+    throw new ValidationError(message);
   }
 
-  // Validate against schema
-  const validation = validateConfig(parsedConfig);
-
-  if (!validation.valid) {
-    throw new ValidationError(
-      `Invalid config file${formatValidationErrors(validation.errors)}`
-    );
-  }
-
-  const config = parsedConfig as TrafficalConfig;
   const projectId = config.project.id;
 
   // Create API client
