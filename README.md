@@ -1,6 +1,6 @@
 # @traffical/cli
 
-Config-as-code CLI for Traffical - manage your feature flags and experimentation parameters in version-controlled YAML files.
+Config-as-code CLI for Traffical — manage your feature flags and experimentation parameters in version-controlled YAML files. When you push a config via CLI, the remote parameters enter a **synced, read-only state** in the dashboard, ensuring version control remains the source of truth.
 
 ## Installation
 
@@ -48,13 +48,31 @@ The CLI automatically detects your framework (React, Next.js, Svelte, SvelteKit,
 
 | Command | Description |
 |---------|-------------|
-| `init` | Initialize Traffical in a project, creates `.traffical/` directory |
+| `init` | Initialize Traffical in a project, creates `.traffical/` directory and SDK key |
 | `push` | Push local config to Traffical (validates first) |
 | `pull` | Pull synced parameters from Traffical to local config |
 | `sync` | Bidirectional sync (local wins policy) |
 | `status` | Show current sync status |
 | `import <key>` | Import dashboard parameters (supports wildcards: `ui.*`, `*.enabled`) |
 | `integrate-ai-tools` | Add Traffical references to AI tool config files |
+
+### `init` Options
+
+| Flag | Description |
+|------|-------------|
+| `--api-key <key>` | API key for authentication |
+| `--framework <name>` | Skip framework detection (react, nextjs, svelte, sveltekit, vue, nuxt, node) |
+| `--project <id>` | Project ID (skip interactive selection) |
+| `--yes` | Accept all defaults without prompting |
+
+The `init` command auto-detects your framework, scaffolds events, generates framework-specific code templates, and creates a project-scoped SDK key.
+
+### `push` Options
+
+| Flag | Description |
+|------|-------------|
+| `--dry-run` | Validate and preview changes without applying |
+| `--prune` | Archive orphaned synced parameters that no longer exist in your local config |
 
 ## Sync Behavior
 
