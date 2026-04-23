@@ -1,5 +1,16 @@
 # @traffical/cli
 
+## 0.7.0
+
+### Minor Changes
+
+- b03b3b6: Handle parameter states, add --prune option to archive orphaned synced parameters
+- 49e0483: Add event schema support: property definitions in traffical.yaml with JSON Schema-based validation, property groups for reusable schemas, `typegen` command for generating typed event interfaces (TypeScript), and `--include-types` flag on `pull` command.
+
+### Patch Changes
+
+- 4b5cd76: streamline config reading and validation in push command
+
 ## 0.6.0
 
 ### Minor Changes
