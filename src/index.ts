@@ -102,8 +102,10 @@ program
 // Pull command
 program
   .command("pull")
-  .description("Pull synced parameters from Traffical to local config")
-  .action(async () => {
+  .description("Pull synced parameters, events, and property groups from Traffical to local config")
+  .option("--include-types", "Also generate TypeScript types after pulling")
+  .option("--types-output <path>", "Output path for generated types (with --include-types)")
+  .action(async (options) => {
     const globalOpts = program.opts();
     try {
       await pullCommand({
@@ -111,6 +113,8 @@ program
         configPath: globalOpts.config,
         apiBase: globalOpts.apiBase,
         format: globalOpts.format,
+        includeTypes: options.includeTypes,
+        typesOutput: options.typesOutput,
       });
     } catch (error) {
       handleError(error, globalOpts.format);
@@ -203,14 +207,16 @@ program
 // Generate Types command
 program
   .command("generate-types")
-  .description("Generate TypeScript types from traffical.yaml config")
+  .description("Generate typed definitions from traffical.yaml config")
   .option("-o, --output <path>", "Output file path (default: .traffical/traffical.generated.ts)")
+  .option("-l, --language <lang>", "Output language (default: typescript)", "typescript")
   .action(async (options) => {
     const globalOpts = program.opts();
     try {
       await generateTypesCommand({
         configPath: globalOpts.config,
         output: options.output,
+        language: options.language,
         format: globalOpts.format,
       });
     } catch (error) {

@@ -12,6 +12,8 @@ import {
   readConfigFile,
   configParamToApi,
   configEventToApi,
+  configPropertyGroupToApi,
+  compilePropertySchema,
   TRAFFICAL_DIR,
 } from "../lib/config.ts";
 import { ApiClient, ValidationError } from "../lib/api.ts";
@@ -45,6 +47,12 @@ export interface PushResult {
     updated: string[];
     unchanged: string[];
     remoteOnly: string[];
+    total: number;
+  };
+  propertyGroups: {
+    created: string[];
+    updated: string[];
+    unchanged: string[];
     total: number;
   };
 }
@@ -97,7 +105,12 @@ export async function pushConfig(options: {
     configEventToApi(name, event)
   );
 
-  if (parameters.length === 0 && events.length === 0) {
+  // Convert config property groups to API format
+  const propertyGroups = Object.entries(config.propertyGroups || {}).map(
+    ([name, group]) => configPropertyGroupToApi(name, group)
+  );
+
+  if (parameters.length === 0 && events.length === 0 && propertyGroups.length === 0) {
     return {
       success: true,
       project: { id: project.id, name: project.name },
@@ -114,6 +127,12 @@ export async function pushConfig(options: {
         updated: [],
         unchanged: [],
         remoteOnly: [],
+        total: 0,
+      },
+      propertyGroups: {
+        created: [],
+        updated: [],
+        unchanged: [],
         total: 0,
       },
     };
@@ -145,7 +164,7 @@ export async function pushConfig(options: {
     const localKeys = new Set(parameters.map((p) => p.key));
     const remoteOnly = remoteParams.filter((p) => !localKeys.has(p.key)).map((p) => p.key);
 
-    // Dry run: compare events with remote
+    // Dry run: compare events with remote (including schema fields)
     const remoteEvents = await client.listEventDefinitions(projectId, { synced: true });
     const remoteEventNames = new Map(remoteEvents.map((e) => [e.name, e]));
 
@@ -154,18 +173,46 @@ export async function pushConfig(options: {
     const eventsUnchanged: string[] = [];
 
     for (const event of events) {
-      const remote = remoteEventNames.get(event.name);
+      const remote = remoteEventNames.get(event.name as string);
       if (!remote) {
-        eventsCreated.push(event.name);
-      } else if (remote.valueType !== event.valueType || remote.unit !== event.unit) {
-        eventsUpdated.push(event.name);
+        eventsCreated.push(event.name as string);
+      } else if (
+        remote.valueType !== event.valueType ||
+        remote.unit !== event.unit ||
+        remote.schemaVersion !== event.schemaVersion ||
+        remote.schemaEnforcement !== (event.schemaEnforcement || undefined) ||
+        JSON.stringify(remote.propertySchema) !== JSON.stringify(event.propertySchema)
+      ) {
+        eventsUpdated.push(event.name as string);
       } else {
-        eventsUnchanged.push(event.name);
+        eventsUnchanged.push(event.name as string);
       }
     }
 
     const localEventNames = new Set(events.map((e) => e.name));
     const eventsRemoteOnly = remoteEvents.filter((e) => !localEventNames.has(e.name)).map((e) => e.name);
+
+    // Dry run: compare property groups with remote
+    const remoteGroups = propertyGroups.length > 0 ? await client.listPropertyGroups(projectId) : [];
+    const remoteGroupNames = new Map(remoteGroups.map((g) => [g.name, g]));
+
+    const groupsCreated: string[] = [];
+    const groupsUpdated: string[] = [];
+    const groupsUnchanged: string[] = [];
+
+    for (const group of propertyGroups) {
+      const remote = remoteGroupNames.get(group.name);
+      if (!remote) {
+        groupsCreated.push(group.name);
+      } else if (
+        JSON.stringify(remote.schema) !== JSON.stringify(group.schema) ||
+        remote.schemaVersion !== group.schemaVersion
+      ) {
+        groupsUpdated.push(group.name);
+      } else {
+        groupsUnchanged.push(group.name);
+      }
+    }
 
     return {
       success: true,
@@ -185,6 +232,12 @@ export async function pushConfig(options: {
         remoteOnly: eventsRemoteOnly,
         total: events.length,
       },
+      propertyGroups: {
+        created: groupsCreated,
+        updated: groupsUpdated,
+        unchanged: groupsUnchanged,
+        total: propertyGroups.length,
+      },
     };
   }
 
@@ -193,6 +246,19 @@ export async function pushConfig(options: {
     parameters,
     source: "config.yaml",
   });
+
+  // Actual push - property groups (before events, since events may reference groups)
+  let groupResult = { created: [], updated: [], unchanged: [] } as {
+    created: { name: string }[];
+    updated: { name: string }[];
+    unchanged: { name: string }[];
+  };
+  if (propertyGroups.length > 0) {
+    groupResult = await client.syncPropertyGroups(projectId, {
+      groups: propertyGroups,
+      source: "config.yaml",
+    });
+  }
 
   // Actual push - events
   let eventResult = { created: [], updated: [], unchanged: [], remoteOnly: [] } as {
@@ -240,6 +306,12 @@ export async function pushConfig(options: {
       remoteOnly: eventResult.remoteOnly.map((e) => e.name),
       total: events.length,
     },
+    propertyGroups: {
+      created: groupResult.created.map((g) => g.name),
+      updated: groupResult.updated.map((g) => g.name),
+      unchanged: groupResult.unchanged.map((g) => g.name),
+      total: propertyGroups.length,
+    },
   };
 }
 
@@ -256,8 +328,8 @@ function printPushHuman(result: PushResult): void {
     console.log(`Pushing to ${chalk.bold(result.project.name)}...\n`);
   }
 
-  if (result.total === 0 && result.events.total === 0) {
-    console.log(chalk.yellow("No parameters or events in config file."));
+  if (result.total === 0 && result.events.total === 0 && result.propertyGroups.total === 0) {
+    console.log(chalk.yellow("No parameters, events, or property groups in config file."));
     return;
   }
 
@@ -327,12 +399,36 @@ function printPushHuman(result: PushResult): void {
     console.log();
   }
 
+  // Property Groups section
+  if (result.propertyGroups.total > 0) {
+    console.log(chalk.bold(result.dryRun ? "Would change (Local → Remote) Property Groups:" : "Local → Remote (Property Groups):"));
+
+    if (result.propertyGroups.created.length > 0) {
+      console.log(chalk.green(`  + ${result.propertyGroups.created.length} ${result.dryRun ? "would be created" : "created"}`));
+      result.propertyGroups.created.forEach((name) => console.log(chalk.dim(`    ${name}`)));
+    }
+
+    if (result.propertyGroups.updated.length > 0) {
+      console.log(chalk.yellow(`  ~ ${result.propertyGroups.updated.length} ${result.dryRun ? "would be updated" : "updated"}`));
+      result.propertyGroups.updated.forEach((name) => console.log(chalk.dim(`    ${name}`)));
+    }
+
+    if (result.propertyGroups.unchanged.length > 0) {
+      console.log(chalk.dim(`  = ${result.propertyGroups.unchanged.length} ${result.dryRun ? "already in sync" : "unchanged"}`));
+    }
+
+    console.log();
+  }
+
   if (result.dryRun) {
     console.log(chalk.cyan("✓ Dry run complete - no changes made"));
   } else {
     const parts: string[] = [];
     if (result.total > 0) {
       parts.push(`${result.total} parameter${result.total !== 1 ? "s" : ""}`);
+    }
+    if (result.propertyGroups.total > 0) {
+      parts.push(`${result.propertyGroups.total} property group${result.propertyGroups.total !== 1 ? "s" : ""}`);
     }
     if (result.events.total > 0) {
       parts.push(`${result.events.total} event${result.events.total !== 1 ? "s" : ""}`);

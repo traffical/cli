@@ -26,6 +26,7 @@ export interface TrafficalConfig {
     parameters: Record<string, ConfigParameter>;
   }>;
   events?: Record<string, ConfigEvent>;
+  propertyGroups?: Record<string, ConfigPropertyGroup>;
 }
 
 /**
@@ -53,6 +54,44 @@ export interface ConfigParameter {
   constraints?: ParameterConstraints;
 }
 
+/** Schema enforcement modes for event property validation */
+export type EventSchemaEnforcement = "off" | "warn" | "reject";
+
+/**
+ * Property field definition in the Traffical YAML DSL.
+ * Compiled to JSON Schema draft-07 internally.
+ */
+export interface ConfigPropertyField {
+  type: "string" | "number" | "integer" | "boolean" | "array" | "object";
+  required?: boolean;
+  description?: string;
+  enum?: (string | number | boolean)[];
+  pattern?: string;
+  format?: "date-time" | "email" | "uri" | "uuid";
+  minimum?: number;
+  maximum?: number;
+  minLength?: number;
+  maxLength?: number;
+  default?: unknown;
+  examples?: unknown[];
+  dimension?: boolean;
+  warehouseType?: string;
+  items?: ConfigPropertyField;
+  minItems?: number;
+  maxItems?: number;
+  properties?: Record<string, ConfigPropertyField>;
+  additionalProperties?: boolean;
+}
+
+/**
+ * Reusable property group in traffical.yaml
+ */
+export interface ConfigPropertyGroup {
+  description?: string;
+  schemaVersion?: string;
+  properties: Record<string, ConfigPropertyField>;
+}
+
 /**
  * Event definition in traffical.yaml
  */
@@ -60,6 +99,10 @@ export interface ConfigEvent {
   valueType: EventValueType;
   unit?: string;
   description?: string;
+  properties?: Record<string, ConfigPropertyField>;
+  propertyGroups?: string[];
+  schemaVersion?: string;
+  schemaEnforcement?: EventSchemaEnforcement;
 }
 
 /**
@@ -228,6 +271,10 @@ export interface ApiEventDefinition {
   valueType: EventValueType;
   unit?: string;
   description?: string;
+  propertySchema?: EventPropertySchema;
+  propertyGroupRefs?: string[];
+  schemaVersion?: string;
+  schemaEnforcement?: EventSchemaEnforcement;
   synced: boolean;
   syncedSource?: string;
   syncedAt?: string;
@@ -246,6 +293,10 @@ export interface EventSyncRequest {
     valueType: EventValueType;
     unit?: string;
     description?: string;
+    propertySchema?: EventPropertySchema;
+    propertyGroupRefs?: string[];
+    schemaVersion?: string;
+    schemaEnforcement?: EventSchemaEnforcement;
   }>;
   source?: string;
 }
@@ -271,6 +322,84 @@ export interface EventSyncResponse {
     updated: number;
     unchanged: number;
     remoteOnly: number;
+  };
+}
+
+// =============================================================================
+// Event Property Schema (JSON Schema subset — local mirror of control plane types)
+// =============================================================================
+
+/**
+ * JSON Schema draft-07 subset for event property schemas.
+ * This is the compiled/resolved form stored on EventDefinition.
+ */
+export interface EventPropertySchema {
+  type: "object";
+  properties?: Record<string, EventPropertySchemaField>;
+  required?: string[];
+  additionalProperties?: boolean;
+  description?: string;
+}
+
+export interface EventPropertySchemaField {
+  type: "string" | "number" | "integer" | "boolean" | "array" | "object";
+  description?: string;
+  enum?: (string | number | boolean)[];
+  pattern?: string;
+  format?: "date-time" | "email" | "uri" | "uuid";
+  minimum?: number;
+  maximum?: number;
+  minLength?: number;
+  maxLength?: number;
+  default?: unknown;
+  examples?: unknown[];
+  items?: EventPropertySchemaField;
+  minItems?: number;
+  maxItems?: number;
+  properties?: Record<string, EventPropertySchemaField>;
+  required?: string[];
+  additionalProperties?: boolean;
+  dimension?: boolean;
+  warehouseType?: string;
+}
+
+// =============================================================================
+// Property Group API Types
+// =============================================================================
+
+export interface ApiPropertyGroup {
+  id: string;
+  projectId: string;
+  name: string;
+  description?: string;
+  schema: EventPropertySchemaField;
+  schemaVersion?: string;
+  managedBy?: string;
+  synced: boolean;
+  syncedSource?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PropertyGroupSyncRequest {
+  groups: Array<{
+    name: string;
+    description?: string;
+    schema: EventPropertySchemaField;
+    schemaVersion?: string;
+  }>;
+  source?: string;
+}
+
+export interface PropertyGroupSyncResponse {
+  created: Array<{ name: string; id: string }>;
+  updated: Array<{ name: string; id: string }>;
+  unchanged: Array<{ name: string; id: string }>;
+  summary: {
+    totalInConfig: number;
+    created: number;
+    updated: number;
+    unchanged: number;
   };
 }
 

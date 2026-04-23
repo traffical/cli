@@ -22,13 +22,15 @@ import {
   apiParamToConfig,
   configEventToApi,
   apiEventToConfig,
+  configPropertyGroupToApi,
+  apiPropertyGroupToConfig,
   TRAFFICAL_DIR,
   CONFIG_FILENAME,
   LEGACY_CONFIG_FILENAME,
 } from "../lib/config.ts";
 import { ApiClient, ValidationError } from "../lib/api.ts";
 import { parseFormatOption } from "../lib/output.ts";
-import type { ConfigParameter, ConfigEvent } from "../lib/types.ts";
+import type { ConfigParameter, ConfigEvent, ConfigPropertyGroup } from "../lib/types.ts";
 
 const execAsync = promisify(exec);
 
@@ -85,6 +87,16 @@ export interface SyncResult {
       discovered: string[];
     };
     conflicts: EventConflictInfo[];
+  };
+  propertyGroups: {
+    push: {
+      created: string[];
+      updated: string[];
+      unchanged: string[];
+    };
+    pull: {
+      added: string[];
+    };
   };
 }
 
@@ -217,13 +229,18 @@ export async function syncConfig(options: {
   const eventsWouldUnchange: string[] = [];
 
   for (const event of localEvents) {
-    const remote = remoteEventByName.get(event.name);
+    const remote = remoteEventByName.get(event.name as string);
     if (!remote) {
-      eventsWouldCreate.push(event.name);
-    } else if (remote.valueType !== event.valueType || remote.unit !== event.unit) {
-      eventsWouldUpdate.push(event.name);
+      eventsWouldCreate.push(event.name as string);
+    } else if (
+      remote.valueType !== event.valueType ||
+      remote.unit !== event.unit ||
+      remote.schemaVersion !== event.schemaVersion ||
+      JSON.stringify(remote.propertySchema) !== JSON.stringify(event.propertySchema)
+    ) {
+      eventsWouldUpdate.push(event.name as string);
     } else {
-      eventsWouldUnchange.push(event.name);
+      eventsWouldUnchange.push(event.name as string);
     }
   }
 
@@ -251,6 +268,10 @@ export async function syncConfig(options: {
       valueType: event.valueType,
       unit: event.unit,
       description: event.description,
+      propertySchema: event.propertySchema,
+      propertyGroupRefs: event.propertyGroupRefs,
+      schemaVersion: event.schemaVersion,
+      schemaEnforcement: event.schemaEnforcement,
     });
 
     if (!config.events[name]) {
@@ -276,6 +297,66 @@ export async function syncConfig(options: {
         });
       }
     }
+  }
+
+  // ==========================================================================
+  // Property Groups Sync
+  // ==========================================================================
+
+  const localGroupEntries = Object.entries(config.propertyGroups || {});
+  const localGroups = localGroupEntries.map(([name, group]) =>
+    configPropertyGroupToApi(name, group)
+  );
+
+  const remoteGroups = localGroups.length > 0
+    ? await client.listPropertyGroups(projectId)
+    : [];
+  const remoteGroupByName = new Map(remoteGroups.map((g) => [g.name, g]));
+
+  const groupsWouldCreate: string[] = [];
+  const groupsWouldUpdate: string[] = [];
+  const groupsWouldUnchange: string[] = [];
+
+  for (const group of localGroups) {
+    const remote = remoteGroupByName.get(group.name);
+    if (!remote) {
+      groupsWouldCreate.push(group.name);
+    } else if (
+      JSON.stringify(remote.schema) !== JSON.stringify(group.schema) ||
+      remote.schemaVersion !== group.schemaVersion
+    ) {
+      groupsWouldUpdate.push(group.name);
+    } else {
+      groupsWouldUnchange.push(group.name);
+    }
+  }
+
+  if (!isDryRun && localGroups.length > 0) {
+    await client.syncPropertyGroups(projectId, {
+      groups: localGroups,
+      source: "config.yaml",
+    });
+  }
+
+  // Pull new remote property groups into local config
+  const groupsNewFromRemote: string[] = [];
+
+  if (!config.propertyGroups) {
+    config.propertyGroups = {};
+  }
+
+  for (const group of remoteGroups) {
+    if (!config.propertyGroups[group.name]) {
+      groupsNewFromRemote.push(group.name);
+      if (!isDryRun) {
+        config.propertyGroups[group.name] = apiPropertyGroupToConfig(group);
+        configChanged = true;
+      }
+    }
+  }
+
+  if (Object.keys(config.propertyGroups).length === 0) {
+    delete config.propertyGroups;
   }
 
   // Save config if changed
@@ -328,6 +409,16 @@ export async function syncConfig(options: {
         discovered: eventsDiscovered,
       },
       conflicts: eventConflicts,
+    },
+    propertyGroups: {
+      push: {
+        created: groupsWouldCreate,
+        updated: groupsWouldUpdate,
+        unchanged: groupsWouldUnchange,
+      },
+      pull: {
+        added: groupsNewFromRemote,
+      },
     },
   };
 }

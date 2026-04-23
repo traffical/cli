@@ -13,17 +13,20 @@ import {
   writeConfigFile,
   apiParamToConfig,
   apiEventToConfig,
+  apiPropertyGroupToConfig,
   TRAFFICAL_DIR,
 } from "../lib/config.ts";
 import { ApiClient, ValidationError } from "../lib/api.ts";
 import { parseFormatOption } from "../lib/output.ts";
-import type { ConfigParameter, ConfigEvent } from "../lib/types.ts";
+import type { ConfigParameter, ConfigEvent, ConfigPropertyGroup } from "../lib/types.ts";
 
 export interface PullOptions {
   profile?: string;
   configPath?: string;
   apiBase?: string;
   format?: string | boolean;
+  includeTypes?: boolean;
+  typesOutput?: string;
 }
 
 export interface PullResult {
@@ -46,6 +49,14 @@ export interface PullResult {
     localOnly: string[];
     total: number;
   };
+  propertyGroups: {
+    added: string[];
+    updated: string[];
+    unchanged: string[];
+    localOnly: string[];
+    total: number;
+  };
+  typesGenerated?: string;
 }
 
 /**
@@ -55,6 +66,8 @@ export async function pullConfig(options: {
   profile?: string;
   configPath?: string;
   apiBase?: string;
+  includeTypes?: boolean;
+  typesOutput?: string;
 }): Promise<PullResult> {
   // Find config file
   const configPath = options.configPath || (await findConfigFile());
@@ -150,6 +163,10 @@ export async function pullConfig(options: {
       valueType: event.valueType,
       unit: event.unit,
       description: event.description,
+      propertySchema: event.propertySchema,
+      propertyGroupRefs: event.propertyGroupRefs,
+      schemaVersion: event.schemaVersion,
+      schemaEnforcement: event.schemaEnforcement,
     });
 
     const existing = config.events?.[name];
@@ -163,7 +180,10 @@ export async function pullConfig(options: {
     } else if (
       existing.valueType !== eventConfig.valueType ||
       existing.unit !== eventConfig.unit ||
-      existing.description !== eventConfig.description
+      existing.description !== eventConfig.description ||
+      existing.schemaVersion !== eventConfig.schemaVersion ||
+      existing.schemaEnforcement !== eventConfig.schemaEnforcement ||
+      JSON.stringify(existing.properties) !== JSON.stringify(eventConfig.properties)
     ) {
       eventsUpdated.push(name);
     } else {
@@ -183,7 +203,58 @@ export async function pullConfig(options: {
   }
 
   config.events = newEvents;
+
+  // ==========================================================================
+  // Property Groups Pull
+  // ==========================================================================
+
+  const propertyGroupDefs = await client.listPropertyGroups(projectId);
+
+  const groupsAdded: string[] = [];
+  const groupsUpdated: string[] = [];
+  const groupsUnchanged: string[] = [];
+
+  const newPropertyGroups: Record<string, ConfigPropertyGroup> = {};
+
+  for (const group of propertyGroupDefs) {
+    const groupConfig = apiPropertyGroupToConfig(group);
+    const existing = config.propertyGroups?.[group.name];
+
+    if (!existing) {
+      groupsAdded.push(group.name);
+    } else if (JSON.stringify(existing) !== JSON.stringify(groupConfig)) {
+      groupsUpdated.push(group.name);
+    } else {
+      groupsUnchanged.push(group.name);
+    }
+
+    newPropertyGroups[group.name] = groupConfig;
+  }
+
+  // Preserve local-only groups
+  const groupsLocalOnly: string[] = [];
+  for (const [name, group] of Object.entries(config.propertyGroups || {})) {
+    if (!newPropertyGroups[name]) {
+      newPropertyGroups[name] = group;
+      groupsLocalOnly.push(name);
+    }
+  }
+
+  config.propertyGroups = Object.keys(newPropertyGroups).length > 0
+    ? newPropertyGroups : undefined;
+
   await writeConfigFile(configPath, config);
+
+  // Optionally generate types after pull
+  let typesGenerated: string | undefined;
+  if (options.includeTypes) {
+    const { generateTypes } = await import("./generate-types.ts");
+    const typeResult = await generateTypes({
+      configPath,
+      output: options.typesOutput,
+    });
+    typesGenerated = typeResult.outputPath;
+  }
 
   return {
     success: true,
@@ -202,6 +273,14 @@ export async function pullConfig(options: {
       localOnly: eventsLocalOnly,
       total: eventDefinitions.length,
     },
+    propertyGroups: {
+      added: groupsAdded,
+      updated: groupsUpdated,
+      unchanged: groupsUnchanged,
+      localOnly: groupsLocalOnly,
+      total: propertyGroupDefs.length,
+    },
+    typesGenerated,
   };
 }
 
@@ -288,18 +367,60 @@ function printPullHuman(result: PullResult): void {
     console.log();
   }
 
+  // Property Groups section
+  const { propertyGroups: groups } = result;
+  const hasGroupActivity =
+    groups.added.length > 0 ||
+    groups.updated.length > 0 ||
+    groups.localOnly.length > 0;
+
+  if (hasGroupActivity || groups.total > 0) {
+    console.log(chalk.bold("Remote → Local (Property Groups):"));
+
+    if (groups.added.length > 0) {
+      console.log(chalk.green(`  + ${groups.added.length} added`));
+      groups.added.forEach((name) => console.log(chalk.dim(`    ${name}`)));
+    }
+
+    if (groups.updated.length > 0) {
+      console.log(chalk.yellow(`  ~ ${groups.updated.length} updated`));
+      groups.updated.forEach((name) => console.log(chalk.dim(`    ${name}`)));
+    }
+
+    if (groups.unchanged.length > 0) {
+      console.log(chalk.dim(`  = ${groups.unchanged.length} unchanged`));
+    }
+
+    if (groups.localOnly.length > 0) {
+      console.log(chalk.cyan(`  ? ${groups.localOnly.length} local-only (not yet pushed)`));
+      groups.localOnly.forEach((name) => console.log(chalk.dim(`    ${name}`)));
+    }
+
+    console.log();
+  }
+
   console.log(chalk.green(`✓ Updated config.yaml`));
 
-  const hasLocalOnly = result.localOnly.length > 0 || events.localOnly.length > 0;
+  if (result.typesGenerated) {
+    console.log(chalk.green(`✓ Generated types: ${result.typesGenerated}`));
+  }
+
+  const hasLocalOnly = result.localOnly.length > 0 || events.localOnly.length > 0 || groups.localOnly.length > 0;
   if (hasLocalOnly) {
     console.log();
-    console.log(chalk.dim("Run 'traffical push' to sync local-only parameters/events."));
+    console.log(chalk.dim("Run 'traffical push' to sync local-only parameters/events/property groups."));
   }
 }
 
 export async function pullCommand(options: PullOptions): Promise<void> {
   const format = parseFormatOption(options.format);
-  const result = await pullConfig(options);
+  const result = await pullConfig({
+    profile: options.profile,
+    configPath: options.configPath,
+    apiBase: options.apiBase,
+    includeTypes: options.includeTypes,
+    typesOutput: options.typesOutput,
+  });
 
   if (format === "json") {
     console.log(JSON.stringify(result, null, 2));

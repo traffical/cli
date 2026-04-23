@@ -11,10 +11,13 @@ import type {
   ApiNamespace,
   ApiParameter,
   ApiEventDefinition,
+  ApiPropertyGroup,
   SyncRequest,
   SyncResponse,
   EventSyncRequest,
   EventSyncResponse,
+  PropertyGroupSyncRequest,
+  PropertyGroupSyncResponse,
   BulkParameterResponse,
 } from "./types.ts";
 
@@ -350,6 +353,32 @@ export class ApiClient {
    */
   async syncEventDefinitions(projectId: string, request: EventSyncRequest): Promise<EventSyncResponse> {
     return this.request<EventSyncResponse>("POST", `/v1/projects/${projectId}/events/sync`, request);
+  }
+
+  // ==========================================================================
+  // Property Groups
+  // ==========================================================================
+
+  /**
+   * List property groups for a project.
+   */
+  async listPropertyGroups(projectId: string): Promise<ApiPropertyGroup[]> {
+    const result = await this.request<{ data: ApiPropertyGroup[] }>(
+      "GET", `/v1/projects/${projectId}/property-groups?limit=1000`
+    );
+    return result.data;
+  }
+
+  /**
+   * Sync property groups from a config file.
+   */
+  async syncPropertyGroups(
+    projectId: string,
+    request: PropertyGroupSyncRequest
+  ): Promise<PropertyGroupSyncResponse> {
+    return this.request<PropertyGroupSyncResponse>(
+      "POST", `/v1/projects/${projectId}/property-groups/sync`, request
+    );
   }
 
   // ==========================================================================

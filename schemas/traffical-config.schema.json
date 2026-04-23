@@ -64,6 +64,13 @@
       "additionalProperties": {
         "$ref": "#/definitions/event"
       }
+    },
+    "propertyGroups": {
+      "type": "object",
+      "description": "Reusable property group schemas for events",
+      "additionalProperties": {
+        "$ref": "#/definitions/propertyGroup"
+      }
     }
   },
   "additionalProperties": false,
@@ -179,6 +186,140 @@
         "description": {
           "type": "string",
           "description": "Human-readable description of the event"
+        },
+        "properties": {
+          "type": "object",
+          "description": "Property definitions for this event (Traffical DSL format)",
+          "additionalProperties": {
+            "$ref": "#/definitions/propertyField"
+          }
+        },
+        "propertyGroups": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Names of property groups to include in this event's schema"
+        },
+        "schemaVersion": {
+          "type": "string",
+          "pattern": "^[0-9]+-[0-9]+-[0-9]+$",
+          "description": "Schema version in SchemaVer format (e.g., 1-0-0)"
+        },
+        "schemaEnforcement": {
+          "type": "string",
+          "enum": ["off", "warn", "reject"],
+          "description": "How to enforce the schema on incoming events"
+        }
+      },
+      "additionalProperties": false
+    },
+    "propertyField": {
+      "type": "object",
+      "description": "Property field definition (Traffical DSL — compiled to JSON Schema internally)",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["string", "number", "integer", "boolean", "array", "object"],
+          "description": "Data type of this property"
+        },
+        "required": {
+          "type": "boolean",
+          "description": "Whether this property is required on the event"
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of this property"
+        },
+        "enum": {
+          "type": "array",
+          "description": "Allowed values for this property"
+        },
+        "pattern": {
+          "type": "string",
+          "description": "Regex pattern for string validation"
+        },
+        "format": {
+          "type": "string",
+          "enum": ["date-time", "email", "uri", "uuid"],
+          "description": "String format hint"
+        },
+        "minimum": {
+          "type": "number",
+          "description": "Minimum value for numbers"
+        },
+        "maximum": {
+          "type": "number",
+          "description": "Maximum value for numbers"
+        },
+        "minLength": {
+          "type": "integer",
+          "description": "Minimum string length"
+        },
+        "maxLength": {
+          "type": "integer",
+          "description": "Maximum string length"
+        },
+        "default": {
+          "description": "Default value for this property"
+        },
+        "examples": {
+          "type": "array",
+          "description": "Example values for documentation"
+        },
+        "dimension": {
+          "type": "boolean",
+          "description": "Whether this property should be extracted as a warehouse dimension"
+        },
+        "warehouseType": {
+          "type": "string",
+          "description": "Override the auto-inferred warehouse column type"
+        },
+        "items": {
+          "$ref": "#/definitions/propertyField",
+          "description": "Schema for array items (when type is array)"
+        },
+        "minItems": {
+          "type": "integer",
+          "description": "Minimum array length"
+        },
+        "maxItems": {
+          "type": "integer",
+          "description": "Maximum array length"
+        },
+        "properties": {
+          "type": "object",
+          "description": "Nested property definitions (when type is object)",
+          "additionalProperties": {
+            "$ref": "#/definitions/propertyField"
+          }
+        },
+        "additionalProperties": {
+          "type": "boolean",
+          "description": "Whether additional properties are allowed on nested objects"
+        }
+      },
+      "additionalProperties": false
+    },
+    "propertyGroup": {
+      "type": "object",
+      "description": "Reusable property group schema",
+      "required": ["properties"],
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of this property group"
+        },
+        "schemaVersion": {
+          "type": "string",
+          "pattern": "^[0-9]+-[0-9]+-[0-9]+$",
+          "description": "Schema version in SchemaVer format (e.g., 1-0-0)"
+        },
+        "properties": {
+          "type": "object",
+          "description": "Property definitions in this group",
+          "additionalProperties": {
+            "$ref": "#/definitions/propertyField"
+          }
         }
       },
       "additionalProperties": false
@@ -234,7 +375,31 @@
         "purchase": {
           "valueType": "currency",
           "unit": "USD",
-          "description": "User completes a purchase"
+          "description": "User completes a purchase",
+          "schemaVersion": "1-0-0",
+          "schemaEnforcement": "warn",
+          "propertyGroups": ["geo"],
+          "properties": {
+            "order_id": {
+              "type": "string",
+              "required": true,
+              "format": "uuid",
+              "description": "Unique order identifier"
+            },
+            "total": {
+              "type": "number",
+              "required": true,
+              "minimum": 0,
+              "dimension": true,
+              "description": "Total order amount"
+            },
+            "payment_method": {
+              "type": "string",
+              "required": true,
+              "enum": ["credit_card", "paypal", "apple_pay"],
+              "dimension": true
+            }
+          }
         },
         "add_to_cart": {
           "valueType": "count",
@@ -243,6 +408,30 @@
         "checkout_started": {
           "valueType": "boolean",
           "description": "User initiates checkout"
+        }
+      },
+      "propertyGroups": {
+        "geo": {
+          "description": "Geographic context for commerce events",
+          "schemaVersion": "1-0-0",
+          "properties": {
+            "market": {
+              "type": "string",
+              "required": true,
+              "enum": ["US", "EU", "APAC"],
+              "dimension": true,
+              "description": "Market region"
+            },
+            "country": {
+              "type": "string",
+              "dimension": true
+            },
+            "currency": {
+              "type": "string",
+              "pattern": "^[A-Z]{3}$",
+              "dimension": true
+            }
+          }
         }
       }
     }

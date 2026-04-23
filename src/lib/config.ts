@@ -13,10 +13,15 @@ import type {
   TrafficalConfig,
   ConfigParameter,
   ConfigEvent,
+  ConfigPropertyField,
+  ConfigPropertyGroup,
   ParameterType,
   ParameterValue,
   ParameterConstraints,
   EventValueType,
+  EventSchemaEnforcement,
+  EventPropertySchema,
+  EventPropertySchemaField,
 } from "./types.ts";
 
 // Import the JSON Schema
@@ -471,6 +476,20 @@ function generateExampleSection(): string {
 #     valueType: currency
 #     unit: USD
 #     description: User completes a purchase
+#     schemaEnforcement: warn
+#     propertyGroups:
+#       - geo
+#     properties:
+#       order_id:
+#         type: string
+#         required: true
+#       total:
+#         type: number
+#         required: true
+#         dimension: true
+#       country:
+#         type: string
+#         dimension: true
 #
 #   add_to_cart:
 #     valueType: count
@@ -480,13 +499,25 @@ function generateExampleSection(): string {
 #     valueType: boolean
 #     description: User initiates checkout
 #
-#   conversion_rate:
-#     valueType: rate
-#     unit: percent
-#     description: Percentage of visitors who convert
-#
 # Supported valueTypes: currency, count, rate, boolean
 # Learn more: https://docs.traffical.io/config-as-code/events
+#
+# ──────────────────────────────────────────────────────────────────────────────
+# Example property groups (reusable schemas across events):
+#
+#   geo:
+#     description: Geographic context
+#     properties:
+#       market:
+#         type: string
+#         required: true
+#         enum: [US, EU, APAC]
+#         dimension: true
+#       country:
+#         type: string
+#         dimension: true
+#
+# Learn more: https://docs.traffical.io/config-as-code/event-schema
 # ──────────────────────────────────────────────────────────────────────────────
 `;
 }
@@ -748,6 +779,10 @@ export function apiEventToConfig(event: {
   valueType: EventValueType;
   unit?: string;
   description?: string;
+  propertySchema?: EventPropertySchema;
+  propertyGroupRefs?: string[];
+  schemaVersion?: string;
+  schemaEnforcement?: EventSchemaEnforcement;
 }): { name: string; config: ConfigEvent } {
   const config: ConfigEvent = {
     valueType: event.valueType,
@@ -761,18 +796,237 @@ export function apiEventToConfig(event: {
     config.description = event.description;
   }
 
+  if (event.schemaVersion) {
+    config.schemaVersion = event.schemaVersion;
+  }
+
+  if (event.schemaEnforcement && event.schemaEnforcement !== "off") {
+    config.schemaEnforcement = event.schemaEnforcement;
+  }
+
+  if (event.propertyGroupRefs?.length) {
+    config.propertyGroups = event.propertyGroupRefs;
+  }
+
+  if (event.propertySchema?.properties && Object.keys(event.propertySchema.properties).length > 0) {
+    config.properties = decompilePropertySchema(event.propertySchema);
+  }
+
   return { name: event.name, config };
 }
 
 /**
  * Convert config event to API sync format.
+ * Compiles the YAML DSL property definitions to JSON Schema.
  */
 export function configEventToApi(name: string, event: ConfigEvent) {
-  return {
+  const result: {
+    name: string;
+    valueType: EventValueType;
+    unit?: string;
+    description?: string;
+    propertySchema?: EventPropertySchema;
+    propertyGroupRefs?: string[];
+    schemaVersion?: string;
+    schemaEnforcement?: EventSchemaEnforcement;
+  } = {
     name,
     valueType: event.valueType,
     unit: event.unit,
     description: event.description,
+    schemaVersion: event.schemaVersion,
+    schemaEnforcement: event.schemaEnforcement,
+    propertyGroupRefs: event.propertyGroups,
   };
+
+  if (event.properties) {
+    result.propertySchema = compilePropertySchema(event.properties);
+  }
+
+  return result;
+}
+
+/**
+ * Convert config property group to API sync format.
+ */
+export function configPropertyGroupToApi(name: string, group: ConfigPropertyGroup) {
+  const { schema, schemaVersion } = compilePropertyGroupSchema(group);
+  return {
+    name,
+    description: group.description,
+    schema,
+    schemaVersion,
+  };
+}
+
+/**
+ * Convert API property group to config format.
+ */
+export function apiPropertyGroupToConfig(group: {
+  name: string;
+  description?: string;
+  schema: EventPropertySchemaField;
+  schemaVersion?: string;
+}): ConfigPropertyGroup {
+  const config: ConfigPropertyGroup = {
+    properties: {},
+  };
+
+  if (group.description) {
+    config.description = group.description;
+  }
+
+  if (group.schemaVersion) {
+    config.schemaVersion = group.schemaVersion;
+  }
+
+  if (group.schema.properties) {
+    const requiredSet = new Set(group.schema.required ?? []);
+    for (const [name, field] of Object.entries(group.schema.properties)) {
+      config.properties[name] = decompilePropertyField(field, requiredSet.has(name));
+    }
+  }
+
+  return config;
+}
+
+// =============================================================================
+// DSL Compiler: Traffical YAML DSL <-> JSON Schema
+// =============================================================================
+
+/**
+ * Compile a Traffical YAML property DSL into JSON Schema (EventPropertySchema).
+ * Lifts per-property `required` flags into the parent's `required` array.
+ * Preserves Traffical extensions (dimension, warehouseType).
+ */
+export function compilePropertySchema(
+  fields: Record<string, ConfigPropertyField>
+): EventPropertySchema {
+  const properties: Record<string, EventPropertySchemaField> = {};
+  const required: string[] = [];
+
+  for (const [name, field] of Object.entries(fields)) {
+    if (field.required) {
+      required.push(name);
+    }
+    properties[name] = compilePropertyField(field);
+  }
+
+  return {
+    type: "object",
+    properties,
+    ...(required.length > 0 ? { required } : {}),
+    additionalProperties: true,
+  };
+}
+
+function compilePropertyField(field: ConfigPropertyField): EventPropertySchemaField {
+  const result: EventPropertySchemaField = { type: field.type };
+
+  if (field.description) result.description = field.description;
+  if (field.enum) result.enum = field.enum;
+  if (field.pattern) result.pattern = field.pattern;
+  if (field.format) result.format = field.format;
+  if (field.minimum !== undefined) result.minimum = field.minimum;
+  if (field.maximum !== undefined) result.maximum = field.maximum;
+  if (field.minLength !== undefined) result.minLength = field.minLength;
+  if (field.maxLength !== undefined) result.maxLength = field.maxLength;
+  if (field.default !== undefined) result.default = field.default;
+  if (field.examples) result.examples = field.examples;
+
+  if (field.dimension) result.dimension = field.dimension;
+  if (field.warehouseType) result.warehouseType = field.warehouseType;
+
+  if (field.type === "array" && field.items) {
+    result.items = compilePropertyField(field.items);
+  }
+  if (field.minItems !== undefined) result.minItems = field.minItems;
+  if (field.maxItems !== undefined) result.maxItems = field.maxItems;
+
+  if (field.type === "object" && field.properties) {
+    const nested = compilePropertySchema(field.properties);
+    result.properties = nested.properties;
+    if (nested.required?.length) result.required = nested.required;
+  }
+  if (field.additionalProperties !== undefined) {
+    result.additionalProperties = field.additionalProperties;
+  }
+
+  return result;
+}
+
+/**
+ * Compile a property group's DSL fields into a JSON Schema field (type: object).
+ */
+export function compilePropertyGroupSchema(
+  group: ConfigPropertyGroup
+): { schema: EventPropertySchemaField; schemaVersion?: string } {
+  const compiled = compilePropertySchema(group.properties);
+  return {
+    schema: {
+      type: "object" as const,
+      properties: compiled.properties,
+      required: compiled.required,
+    },
+    schemaVersion: group.schemaVersion,
+  };
+}
+
+/**
+ * Decompile a JSON Schema (EventPropertySchema) back to the Traffical YAML DSL.
+ * Moves entries from the `required` array back to per-property `required: true`.
+ */
+export function decompilePropertySchema(
+  schema: EventPropertySchema
+): Record<string, ConfigPropertyField> {
+  const result: Record<string, ConfigPropertyField> = {};
+  const requiredSet = new Set(schema.required ?? []);
+
+  for (const [name, field] of Object.entries(schema.properties ?? {})) {
+    result[name] = decompilePropertyField(field, requiredSet.has(name));
+  }
+
+  return result;
+}
+
+function decompilePropertyField(
+  field: EventPropertySchemaField,
+  isRequired: boolean
+): ConfigPropertyField {
+  const result: ConfigPropertyField = { type: field.type };
+
+  if (isRequired) result.required = true;
+  if (field.description) result.description = field.description;
+  if (field.enum) result.enum = field.enum;
+  if (field.pattern) result.pattern = field.pattern;
+  if (field.format) result.format = field.format;
+  if (field.minimum !== undefined) result.minimum = field.minimum;
+  if (field.maximum !== undefined) result.maximum = field.maximum;
+  if (field.minLength !== undefined) result.minLength = field.minLength;
+  if (field.maxLength !== undefined) result.maxLength = field.maxLength;
+  if (field.default !== undefined) result.default = field.default;
+  if (field.examples) result.examples = field.examples;
+
+  if (field.dimension) result.dimension = field.dimension;
+  if (field.warehouseType) result.warehouseType = field.warehouseType;
+
+  if (field.type === "array" && field.items) {
+    result.items = decompilePropertyField(field.items, false);
+  }
+  if (field.minItems !== undefined) result.minItems = field.minItems;
+  if (field.maxItems !== undefined) result.maxItems = field.maxItems;
+
+  if (field.type === "object" && field.properties) {
+    const nestedRequiredSet = new Set(field.required ?? []);
+    result.properties = {};
+    for (const [name, nested] of Object.entries(field.properties)) {
+      result.properties[name] = decompilePropertyField(nested, nestedRequiredSet.has(name));
+    }
+  }
+  if (field.additionalProperties !== undefined) {
+    result.additionalProperties = field.additionalProperties;
+  }
+
+  return result;
 }
 
