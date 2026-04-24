@@ -1,5 +1,11 @@
 # @traffical/cli
 
+## 0.8.0
+
+### Minor Changes
+
+- 0daf842: Support measure, measureDisplayName, and desiredDirection fields on event properties in traffical.yaml, enabling numeric properties to be promoted as additional fact measures during push/pull sync.
+
 ## 0.7.0
 
 ### Minor Changes
