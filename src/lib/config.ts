@@ -935,6 +935,9 @@ function compilePropertyField(field: ConfigPropertyField): EventPropertySchemaFi
   if (field.examples) result.examples = field.examples;
 
   if (field.dimension) result.dimension = field.dimension;
+  if (field.measure) result.measure = field.measure;
+  if (field.measureDisplayName) result.measureDisplayName = field.measureDisplayName;
+  if (field.desiredDirection) result.desiredDirection = field.desiredDirection;
   if (field.warehouseType) result.warehouseType = field.warehouseType;
 
   if (field.type === "array" && field.items) {
@@ -1008,6 +1011,9 @@ function decompilePropertyField(
   if (field.examples) result.examples = field.examples;
 
   if (field.dimension) result.dimension = field.dimension;
+  if (field.measure) result.measure = field.measure;
+  if (field.measureDisplayName) result.measureDisplayName = field.measureDisplayName;
+  if (field.desiredDirection) result.desiredDirection = field.desiredDirection;
   if (field.warehouseType) result.warehouseType = field.warehouseType;
 
   if (field.type === "array" && field.items) {

@@ -270,6 +270,19 @@
           "type": "boolean",
           "description": "Whether this property should be extracted as a warehouse dimension"
         },
+        "measure": {
+          "type": "boolean",
+          "description": "Whether this numeric property should be extracted as an additional fact measure"
+        },
+        "measureDisplayName": {
+          "type": "string",
+          "description": "Display name for this measure in metric creation"
+        },
+        "desiredDirection": {
+          "type": "string",
+          "enum": ["increase", "decrease"],
+          "description": "Whether an increase or decrease in this measure is desirable"
+        },
         "warehouseType": {
           "type": "string",
           "description": "Override the auto-inferred warehouse column type"
@@ -390,7 +403,9 @@
               "type": "number",
               "required": true,
               "minimum": 0,
-              "dimension": true,
+              "measure": true,
+              "measureDisplayName": "Order Total",
+              "desiredDirection": "increase",
               "description": "Total order amount"
             },
             "payment_method": {

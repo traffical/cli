@@ -75,6 +75,9 @@ export interface ConfigPropertyField {
   default?: unknown;
   examples?: unknown[];
   dimension?: boolean;
+  measure?: boolean;
+  measureDisplayName?: string;
+  desiredDirection?: "increase" | "decrease";
   warehouseType?: string;
   items?: ConfigPropertyField;
   minItems?: number;
@@ -360,6 +363,9 @@ export interface EventPropertySchemaField {
   required?: string[];
   additionalProperties?: boolean;
   dimension?: boolean;
+  measure?: boolean;
+  measureDisplayName?: string;
+  desiredDirection?: "increase" | "decrease";
   warehouseType?: string;
 }
 
