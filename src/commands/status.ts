@@ -6,8 +6,8 @@
  */
 
 import chalk from "chalk";
-import { findConfigFile, readConfigFile, TRAFFICAL_DIR } from "../lib/config.ts";
-import { ApiClient, EXIT_DRIFT_DETECTED, EXIT_SUCCESS } from "../lib/api.ts";
+import { findConfigFile, readConfigFile, resolveProject, TRAFFICAL_DIR } from "../lib/config.ts";
+import { ApiClient, EXIT_DRIFT_DETECTED, EXIT_SUCCESS, NotLinkedError } from "../lib/api.ts";
 import { parseFormatOption, type OutputFormat } from "../lib/output.ts";
 import type { ApiParameter, ApiEventDefinition } from "../lib/types.ts";
 
@@ -78,16 +78,20 @@ export async function getStatus(options: {
     );
   }
 
-  // Read config
+  // Read config (parameters/events) and resolve the project link separately
   const config = await readConfigFile(configPath);
-  const projectId = config.project.id;
+  const link = await resolveProject();
+  if (!link) {
+    throw new NotLinkedError();
+  }
+  const projectId = link.projectId;
 
   // Create API client
   const client = await ApiClient.create({ profile: options.profile, apiBase: options.apiBase });
 
   // Get project and org info
   const project = await client.getProject(projectId);
-  const org = await client.getOrganization(config.project.orgId);
+  const org = await client.getOrganization(link.orgId);
 
   // ==========================================================================
   // Parameters

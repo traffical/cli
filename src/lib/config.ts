@@ -22,6 +22,7 @@ import type {
   EventSchemaEnforcement,
   EventPropertySchema,
   EventPropertySchemaField,
+  ProjectLink,
 } from "./types.ts";
 
 // Import the JSON Schema
@@ -32,6 +33,9 @@ export const TRAFFICAL_DIR = ".traffical";
 
 /** Config filename within .traffical directory */
 export const CONFIG_FILENAME = "config.yaml";
+
+/** Project link filename within .traffical directory */
+export const PROJECT_LINK_FILENAME = "project.yaml";
 
 /** Legacy config filename (for backwards compatibility) */
 export const LEGACY_CONFIG_FILENAME = "traffical.yaml";
@@ -288,6 +292,98 @@ export async function ensureTrafficalGitignore(baseDir: string): Promise<void> {
  */
 export function getDefaultConfigPath(baseDir: string = process.cwd()): string {
   return join(baseDir, TRAFFICAL_DIR, CONFIG_FILENAME);
+}
+
+/**
+ * Get the path to the project link file (.traffical/project.yaml).
+ */
+export function getProjectLinkPath(baseDir: string = process.cwd()): string {
+  return join(baseDir, TRAFFICAL_DIR, PROJECT_LINK_FILENAME);
+}
+
+/**
+ * Read the project link file. Returns null if not present.
+ */
+export async function readProjectLink(baseDir: string = process.cwd()): Promise<ProjectLink | null> {
+  try {
+    const content = await readFile(getProjectLinkPath(baseDir), "utf-8");
+    const parsed = parse(content) as ProjectLink;
+    if (!parsed?.project?.id || !parsed?.org?.id) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Write the project link file atomically with a header comment.
+ */
+export async function writeProjectLink(
+  baseDir: string,
+  link: ProjectLink
+): Promise<string> {
+  const path = getProjectLinkPath(baseDir);
+  const header = [
+    `# Traffical project link — managed by \`traffical link\`.`,
+    `# This file records which Traffical project this repo syncs with.`,
+    `# Safe to commit. Edit via \`traffical link\` rather than by hand.`,
+    ``,
+  ].join("\n");
+  const body = stringify(link, { indent: 2, lineWidth: 0 });
+  await writeFile(path, header + body, "utf-8");
+  return path;
+}
+
+/**
+ * Resolved project context: where the IDs came from and the IDs themselves.
+ */
+export interface ResolvedProject {
+  orgId: string;
+  projectId: string;
+  orgKey?: string;
+  projectKey?: string;
+  source: "project.yaml" | "config.yaml";
+}
+
+/**
+ * Resolve the active project for a repo. Prefers .traffical/project.yaml,
+ * falls back to the legacy `project:` block in config.yaml.
+ * Returns null if neither is present.
+ */
+export async function resolveProject(
+  baseDir: string = process.cwd()
+): Promise<ResolvedProject | null> {
+  const link = await readProjectLink(baseDir);
+  if (link) {
+    return {
+      orgId: link.org.id,
+      projectId: link.project.id,
+      orgKey: link.org.key,
+      projectKey: link.project.key,
+      source: "project.yaml",
+    };
+  }
+
+  // Back-compat: look in config.yaml
+  const configPath = await findConfigFile(baseDir);
+  if (configPath) {
+    try {
+      const config = await readConfigFile(configPath);
+      if (config.project?.id && config.project?.orgId) {
+        return {
+          orgId: config.project.orgId,
+          projectId: config.project.id,
+          source: "config.yaml",
+        };
+      }
+    } catch {
+      // ignore — caller will get its own error from readConfigFile
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -553,9 +649,13 @@ function buildGroupedConfig(config: TrafficalConfig): TrafficalConfig {
 
   const grouped: TrafficalConfig = {
     version: config.version,
-    project: config.project,
     parameters: mainParams,
   };
+
+  // Preserve legacy project block on round-trip if present.
+  if (config.project) {
+    grouped.project = config.project;
+  }
 
   if (Object.keys(nsBuckets).length > 0) {
     grouped.namespaces = {};
@@ -586,10 +686,10 @@ export async function writeConfigFile(
   let header = `# Traffical Configuration File\n`;
 
   if (metadata?.projectName) {
-    header += `# Project: ${metadata.projectName} (${config.project.id})\n`;
+    header += `# Project: ${metadata.projectName}\n`;
   }
   if (metadata?.orgName) {
-    header += `# Organization: ${metadata.orgName} (${config.project.orgId})\n`;
+    header += `# Organization: ${metadata.orgName}\n`;
   }
   if (metadata?.createdAt) {
     header += `# Created: ${metadata.createdAt}\n`;
@@ -598,6 +698,7 @@ export async function writeConfigFile(
   header += `#\n`;
   header += `# Parameters defined here are synced with Traffical.\n`;
   header += `# Base defaults become read-only in the dashboard.\n`;
+  header += `# Project link lives in .traffical/project.yaml.\n`;
   header += `# Learn more: https://docs.traffical.io/config-as-code\n`;
   header += `\n`;
 
@@ -632,29 +733,24 @@ export async function writeConfigFile(
  * Options for creating a new config file
  */
 export interface CreateConfigOptions {
-  projectId: string;
-  projectName: string;
-  orgId: string;
-  orgName: string;
+  projectName?: string;
+  orgName?: string;
   parameters?: Record<string, ConfigParameter>;
   events?: Record<string, ConfigEvent>;
 }
 
 /**
- * Create a new traffical.yaml file.
+ * Create a new config.yaml file. The project link itself lives in
+ * .traffical/project.yaml — written separately via writeProjectLink().
  */
 export async function createConfigFile(
   configPath: string,
-  options: CreateConfigOptions
+  options: CreateConfigOptions = {}
 ): Promise<TrafficalConfig> {
-  const { projectId, projectName, orgId, orgName, parameters = {}, events } = options;
+  const { projectName, orgName, parameters = {}, events } = options;
 
   const config: TrafficalConfig = {
     version: "1.0",
-    project: {
-      id: projectId,
-      orgId: orgId,
-    },
     parameters,
   };
 

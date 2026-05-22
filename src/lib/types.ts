@@ -12,11 +12,29 @@ export type EventValueType = "currency" | "count" | "rate" | "boolean";
 export type ParameterValue = string | number | boolean | Record<string, unknown>;
 
 /**
- * traffical.yaml config file schema
+ * .traffical/project.yaml — repo→project link.
+ * Lives alongside config.yaml, committed to git.
+ */
+export interface ProjectLink {
+  version: "1.0";
+  org: {
+    id: string;
+    key?: string;
+  };
+  project: {
+    id: string;
+    key?: string;
+  };
+}
+
+/**
+ * traffical.yaml config file schema.
+ * `project` is legacy and optional — prefer .traffical/project.yaml.
  */
 export interface TrafficalConfig {
   version: "1.0";
-  project: {
+  /** @deprecated Use .traffical/project.yaml instead. Still accepted on read. */
+  project?: {
     id: string;
     orgId: string;
   };
@@ -220,10 +238,29 @@ export interface TrafficalRc {
 }
 
 /**
- * Profile configuration
+ * Profile configuration (legacy ~/.trafficalrc format)
  */
 export interface ProfileConfig {
   api_key: string;
+  api_base?: string;
+}
+
+/**
+ * ~/.config/traffical/auth.json — device-flow session.
+ * Stored with mode 0600. Contains long-lived refresh_token; treat as secret.
+ */
+export interface AuthSession {
+  /** Current short-lived WorkOS JWT (access token). */
+  access_token: string;
+  /** Long-lived WorkOS refresh token. */
+  refresh_token: string;
+  /** Unix epoch seconds when access_token expires. */
+  expires_at: number;
+  /** Email of the logged-in user (for whoami display). */
+  user_email: string;
+  /** Default active org key (used when cwd is not linked). */
+  default_org_key?: string;
+  /** API base URL override (rarely used; for self-hosted). */
   api_base?: string;
 }
 

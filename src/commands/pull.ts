@@ -10,13 +10,14 @@ import chalk from "chalk";
 import {
   findConfigFile,
   readConfigFile,
+  resolveProject,
   writeConfigFile,
   apiParamToConfig,
   apiEventToConfig,
   apiPropertyGroupToConfig,
   TRAFFICAL_DIR,
 } from "../lib/config.ts";
-import { ApiClient, ValidationError } from "../lib/api.ts";
+import { ApiClient, ValidationError, NotLinkedError } from "../lib/api.ts";
 import { parseFormatOption } from "../lib/output.ts";
 import type { ConfigParameter, ConfigEvent, ConfigPropertyGroup } from "../lib/types.ts";
 
@@ -78,9 +79,13 @@ export async function pullConfig(options: {
     );
   }
 
-  // Read config
+  // Read config and resolve project link
   const config = await readConfigFile(configPath);
-  const projectId = config.project.id;
+  const link = await resolveProject();
+  if (!link) {
+    throw new NotLinkedError();
+  }
+  const projectId = link.projectId;
 
   // Create API client
   const client = await ApiClient.create({ profile: options.profile, apiBase: options.apiBase });
