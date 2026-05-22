@@ -9,7 +9,8 @@ import chalk from "chalk";
 import { findConfigFile, readConfigFile, resolveProject, TRAFFICAL_DIR } from "../lib/config.ts";
 import { ApiClient, EXIT_DRIFT_DETECTED, EXIT_SUCCESS, NotLinkedError } from "../lib/api.ts";
 import { parseFormatOption, type OutputFormat } from "../lib/output.ts";
-import type { ApiParameter, ApiEventDefinition } from "../lib/types.ts";
+import { findMetricsFile, readMetricsFile } from "../lib/metrics-config.ts";
+import type { ApiParameter, ApiEventDefinition, ApiMetricDefinition } from "../lib/types.ts";
 
 export interface StatusOptions {
   profile?: string;
@@ -35,6 +36,13 @@ export interface EventInfo {
   discovered: boolean;
 }
 
+export interface MetricInfo {
+  name: string;
+  metricType: string;
+  synced: boolean;
+  certified: boolean;
+}
+
 export interface StatusResult {
   project: {
     id: string;
@@ -47,6 +55,7 @@ export interface StatusResult {
     key: string;
   };
   configPath: string;
+  metricsPath?: string;
   // Parameters
   synced: ParameterInfo[];
   dashboardOnly: ParameterInfo[];
@@ -57,6 +66,14 @@ export interface StatusResult {
     dashboardOnly: EventInfo[];
     localOnly: EventInfo[];
     discovered: EventInfo[];
+  };
+  // Metrics
+  metrics: {
+    synced: MetricInfo[];
+    certified: MetricInfo[];
+    dashboardOnly: MetricInfo[];
+    localOnly: MetricInfo[];
+    remoteOnly: MetricInfo[];
   };
   hasDrift: boolean;
 }
@@ -179,8 +196,48 @@ export async function getStatus(options: {
     } as EventInfo;
   });
 
-  // Drift exists if there are local-only params or local-only events
-  const hasDrift = localOnlyParamKeys.length > 0 || localOnlyEventNames.length > 0;
+  // ==========================================================================
+  // Metrics
+  // ==========================================================================
+  const metricsPath = await findMetricsFile();
+  let metricsConfig = null;
+  if (metricsPath) {
+    try {
+      metricsConfig = await readMetricsFile(metricsPath);
+    } catch {
+      // ignore parse errors for status
+    }
+  }
+
+  const allMetrics = await client.listMetrics(link.projectId);
+
+  const toMetricInfo = (m: ApiMetricDefinition): MetricInfo => ({
+    name: m.name,
+    metricType: m.metricType,
+    synced: m.synced ?? false,
+    certified: m.certificationStatus === "certified",
+  });
+
+  const syncedMetrics = allMetrics.filter((m) => m.synced).map(toMetricInfo);
+  const certifiedMetrics = allMetrics.filter((m) => m.certificationStatus === "certified").map(toMetricInfo);
+  const dashboardOnlyMetrics = allMetrics.filter((m) => !m.synced).map(toMetricInfo);
+
+  const localMetricNames = metricsConfig ? Object.keys(metricsConfig.metrics) : [];
+  const remoteMetricNames = new Set(allMetrics.map((m) => m.name));
+  const localOnlyMetrics = localMetricNames.filter((n) => !remoteMetricNames.has(n)).map((n) => ({
+    name: n,
+    metricType: metricsConfig?.metrics[n]?.metricType ?? "unknown",
+    synced: false,
+    certified: metricsConfig?.metrics[n]?.certified ?? false,
+  }));
+
+  const configMetricNames = new Set(localMetricNames);
+  const remoteOnlyMetrics = allMetrics
+    .filter((m) => m.synced && !configMetricNames.has(m.name))
+    .map(toMetricInfo);
+
+  // Drift exists if there are local-only params, events, or metrics
+  const hasDrift = localOnlyParamKeys.length > 0 || localOnlyEventNames.length > 0 || localOnlyMetrics.length > 0;
 
   return {
     project: {
@@ -194,6 +251,7 @@ export async function getStatus(options: {
       key: org.key,
     },
     configPath,
+    metricsPath: metricsPath ?? undefined,
     synced,
     dashboardOnly,
     localOnly,
@@ -202,6 +260,13 @@ export async function getStatus(options: {
       dashboardOnly: eventsDashboardOnly,
       localOnly: eventsLocalOnly,
       discovered: eventsDiscovered,
+    },
+    metrics: {
+      synced: syncedMetrics,
+      certified: certifiedMetrics,
+      dashboardOnly: dashboardOnlyMetrics,
+      localOnly: localOnlyMetrics,
+      remoteOnly: remoteOnlyMetrics,
     },
     hasDrift,
   };
@@ -308,17 +373,83 @@ function printStatusHuman(result: StatusResult): void {
   }
 
   // ==========================================================================
+  // Metrics
+  // ==========================================================================
+  const totalMetrics = result.metrics.synced.length + result.metrics.dashboardOnly.length +
+                       result.metrics.localOnly.length + result.metrics.remoteOnly.length;
+
+  if (totalMetrics > 0 || result.metricsPath) {
+    console.log(chalk.cyan.bold("Metrics"));
+    if (result.metricsPath) {
+      console.log(chalk.dim(`  Config: ${result.metricsPath}`));
+    }
+    console.log();
+
+    console.log(chalk.bold(`  Synced: ${result.metrics.synced.length} metric${result.metrics.synced.length !== 1 ? "s" : ""}`));
+    if (result.metrics.synced.length > 0) {
+      result.metrics.synced.forEach((m) => {
+        const badge = m.certified ? chalk.green(" [certified]") : "";
+        console.log(chalk.dim(`    ${m.name}`) + chalk.gray(` (${m.metricType})`) + badge);
+      });
+    }
+    console.log();
+
+    if (result.metrics.certified.length > 0) {
+      console.log(chalk.bold(`  Certified: ${result.metrics.certified.length} metric${result.metrics.certified.length !== 1 ? "s" : ""}`));
+      result.metrics.certified.forEach((m) => {
+        console.log(chalk.dim(`    ${m.name}`) + chalk.gray(` (${m.metricType})`));
+      });
+      console.log();
+    }
+
+    console.log(
+      chalk.bold(`  Dashboard-only: ${result.metrics.dashboardOnly.length} metric${result.metrics.dashboardOnly.length !== 1 ? "s" : ""}`)
+    );
+    if (result.metrics.dashboardOnly.length > 0) {
+      result.metrics.dashboardOnly.forEach((m) => {
+        console.log(chalk.dim(`    ${m.name}`) + chalk.gray(` (${m.metricType})`));
+      });
+    }
+    console.log();
+
+    if (result.metrics.localOnly.length > 0) {
+      console.log(
+        chalk.yellow(`  Local-only: ${result.metrics.localOnly.length} metric${result.metrics.localOnly.length !== 1 ? "s" : ""} (not yet pushed)`)
+      );
+      result.metrics.localOnly.forEach((m) => {
+        console.log(chalk.dim(`    ${m.name}`) + chalk.gray(` (${m.metricType})`));
+      });
+      console.log();
+    }
+
+    if (result.metrics.remoteOnly.length > 0) {
+      console.log(
+        chalk.yellow(`  Remote-only: ${result.metrics.remoteOnly.length} synced metric${result.metrics.remoteOnly.length !== 1 ? "s" : ""} not in metrics.yaml`)
+      );
+      result.metrics.remoteOnly.forEach((m) => {
+        console.log(chalk.dim(`    ${m.name}`) + chalk.gray(` (${m.metricType})`));
+      });
+      console.log();
+    }
+  }
+
+  // ==========================================================================
   // Suggestions
   // ==========================================================================
   if (result.dashboardOnly.length > 0) {
     console.log(chalk.dim("Import dashboard parameters to your config:"));
-    console.log(chalk.dim("  traffical import <key>       # Import a single parameter"));
-    console.log(chalk.dim("  traffical import 'ui.*'      # Import all ui.* parameters"));
-    console.log(chalk.dim("  traffical import '*.enabled' # Import all *.enabled parameters"));
+    console.log(chalk.dim("  traffical import param <key>  # Import a single parameter"));
+    console.log(chalk.dim("  traffical import param 'ui.*' # Import all ui.* parameters"));
+    console.log();
+  }
+
+  if (result.metrics.dashboardOnly.length > 0) {
+    console.log(chalk.dim("Import dashboard metrics to metrics.yaml:"));
+    console.log(chalk.dim("  traffical import metrics --all  # Import all metrics"));
     console.log();
   }
   
-  const hasLocalOnlyItems = result.localOnly.length > 0 || result.events.localOnly.length > 0;
+  const hasLocalOnlyItems = result.localOnly.length > 0 || result.events.localOnly.length > 0 || result.metrics.localOnly.length > 0;
   if (hasLocalOnlyItems) {
     console.log(chalk.dim(`Run 'traffical push' to sync local-only items.`));
   }

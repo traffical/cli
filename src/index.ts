@@ -30,6 +30,7 @@ import { pushCommand } from "./commands/push.ts";
 import { syncCommand } from "./commands/sync.ts";
 import { statusCommand } from "./commands/status.ts";
 import { importCommand } from "./commands/import.ts";
+import { importMetricsCommand } from "./commands/import-metrics.ts";
 import { generateTypesCommand } from "./commands/generate-types.ts";
 import { loginCommand } from "./commands/login.ts";
 import { logoutCommand } from "./commands/logout.ts";
@@ -39,6 +40,14 @@ import { orgListCommand, orgUseCommand } from "./commands/org.ts";
 import { projectListCommand, projectCreateCommand, projectUseCommand } from "./commands/project.ts";
 import { CliError, EXIT_VALIDATION_ERROR } from "./lib/api.ts";
 import { TRAFFICAL_DIR, CONFIG_FILENAME } from "./lib/config.ts";
+import { readFileSync } from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const CLI_VERSION: string = JSON.parse(
+  readFileSync(join(__dirname, "..", "package.json"), "utf-8")
+).version;
 
 /**
  * Handle errors with appropriate exit codes.
@@ -88,7 +97,7 @@ const program = new Command();
 program
   .name("traffical")
   .description("Config-as-code for your experimentation platform")
-  .version("0.1.0");
+  .version(CLI_VERSION);
 
 // Global options
 program
@@ -333,15 +342,17 @@ program
 // Push command
 program
   .command("push")
-  .description("Push local config parameters to Traffical")
+  .description("Push local config parameters, events, and metrics to Traffical")
   .option("-n, --dry-run", "Validate and show changes without pushing")
   .option("--prune", "Archive orphaned synced parameters that are no longer in the config file")
+  .option("--metrics-file <path>", "Path to metrics.yaml (default: auto-detect .traffical/metrics.yaml)")
   .action(async (options) => {
     const globalOpts = program.opts();
     try {
       await pushCommand({
         profile: globalOpts.profile,
         configPath: globalOpts.config,
+        metricsFile: options.metricsFile,
         apiBase: globalOpts.apiBase,
         dryRun: options.dryRun,
         prune: options.prune,
@@ -394,11 +405,55 @@ program
     }
   });
 
-// Import command
-program
-  .command("import <key>")
+// Import command (parent)
+const importCmd = program
+  .command("import")
+  .description("Import definitions from the dashboard to local config files");
+
+importCmd
+  .command("param <key>")
   .description("Import dashboard parameters to config (supports wildcards: ui.*, *.enabled)")
   .action(async (key: string) => {
+    const globalOpts = program.opts();
+    try {
+      await importCommand({
+        profile: globalOpts.profile,
+        configPath: globalOpts.config,
+        apiBase: globalOpts.apiBase,
+        key,
+        format: globalOpts.format,
+      });
+    } catch (error) {
+      handleError(error, globalOpts.format);
+    }
+  });
+
+importCmd
+  .command("metrics [name]")
+  .description("Import metric definitions to metrics.yaml (or use --all for all metrics)")
+  .option("--all", "Import all metrics from the dashboard")
+  .option("--metrics-file <path>", "Path to metrics.yaml output file")
+  .action(async (name: string | undefined, options) => {
+    const globalOpts = program.opts();
+    try {
+      await importMetricsCommand({
+        profile: globalOpts.profile,
+        apiBase: globalOpts.apiBase,
+        name,
+        all: options.all,
+        metricsFile: options.metricsFile,
+        format: globalOpts.format,
+      });
+    } catch (error) {
+      handleError(error, globalOpts.format);
+    }
+  });
+
+// Backwards-compat: `traffical import <key>` still works as `traffical import param <key>`
+importCmd
+  .argument("[key]", "Parameter key (deprecated: use 'traffical import param <key>')")
+  .action(async (key: string | undefined) => {
+    if (!key) return;
     const globalOpts = program.opts();
     try {
       await importCommand({

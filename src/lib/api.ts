@@ -12,12 +12,15 @@ import type {
   ApiParameter,
   ApiEventDefinition,
   ApiPropertyGroup,
+  ApiMetricDefinition,
   SyncRequest,
   SyncResponse,
   EventSyncRequest,
   EventSyncResponse,
   PropertyGroupSyncRequest,
   PropertyGroupSyncResponse,
+  MetricSyncRequest,
+  MetricSyncResponse,
   BulkParameterResponse,
 } from "./types.ts";
 
@@ -433,6 +436,45 @@ export class ApiClient {
     return this.request<PropertyGroupSyncResponse>(
       "POST", `/v1/projects/${projectId}/property-groups/sync`, request
     );
+  }
+
+  // ==========================================================================
+  // Metrics
+  // ==========================================================================
+
+  /**
+   * List metric definitions for a project.
+   */
+  async listMetrics(
+    projectId: string,
+    options?: { synced?: boolean }
+  ): Promise<ApiMetricDefinition[]> {
+    let url = `/v1/projects/${projectId}/metrics?limit=1000`;
+    if (options?.synced !== undefined) {
+      url += `&synced=${options.synced}`;
+    }
+    const result = await this.request<{ data: ApiMetricDefinition[] }>("GET", url);
+    return result.data;
+  }
+
+  /**
+   * List fact definitions for a project.
+   */
+  async listFactDefinitions(
+    projectId: string,
+    options?: { status?: string }
+  ): Promise<Array<{ id: string; name: string }>> {
+    let url = `/v1/projects/${projectId}/fact-definitions?limit=500`;
+    if (options?.status) url += `&status=${options.status}`;
+    const result = await this.request<{ data: Array<{ id: string; name: string }> }>("GET", url);
+    return result.data;
+  }
+
+  /**
+   * Sync metrics from a config file (metrics.yaml).
+   */
+  async syncMetrics(projectId: string, request: MetricSyncRequest): Promise<MetricSyncResponse> {
+    return this.request<MetricSyncResponse>("POST", `/v1/projects/${projectId}/metrics/sync`, request);
   }
 
   // ==========================================================================

@@ -446,6 +446,132 @@ export interface PropertyGroupSyncResponse {
   };
 }
 
+// =============================================================================
+// Metrics Config Types (metrics.yaml)
+// =============================================================================
+
+export type MetricType = "conversion_rate" | "sum" | "count" | "ratio" | "funnel" | "percentile";
+export type DesiredDirection = "increase" | "decrease";
+export type CertificationStatus = "none" | "certified" | "deprecated";
+
+/**
+ * .traffical/metrics.yaml config file schema.
+ */
+export interface MetricsConfig {
+  version: "1.0";
+  fact_sources?: Record<string, ConfigFactSource>;
+  metrics: Record<string, ConfigMetric>;
+}
+
+export interface ConfigFactSource {
+  sql: string;
+  timestamp_column: string;
+  description?: string;
+  measures?: Array<{ column: string; type?: string; displayName?: string; desiredDirection?: DesiredDirection }>;
+  dimensions?: Array<{ column: string; type?: string }>;
+}
+
+export interface ConfigMetric {
+  display_name?: string;
+  description?: string;
+  metricType: MetricType;
+  event?: string;
+  fact?: string;
+  measure?: string;
+  desiredDirection?: DesiredDirection;
+  unit?: string;
+  winsorizeAt?: number;
+  certified?: boolean;
+  filters?: Array<{ dimension: string; operator: string; values: string[] }>;
+  timeframe?: { startDays?: number; endDays?: number };
+  numerator?: { fact: string; measure: string };
+  denominator?: { fact: string; measure: string };
+  percentile?: number;
+  funnelSteps?: Array<{ event?: string; fact?: string }>;
+}
+
+/**
+ * API Metric Definition response
+ */
+export interface ApiMetricDefinition {
+  id: string;
+  projectId: string;
+  name: string;
+  displayName?: string;
+  description?: string;
+  metricType: MetricType;
+  sourceMode?: string;
+  eventDefinitionId?: string;
+  factDefinitionId?: string;
+  factMeasureColumn?: string;
+  filters?: Array<{ column: string; operator: string; values: string[] }>;
+  timeframe?: { startDays?: number; endDays?: number };
+  version?: number;
+  unit?: string;
+  desiredDirection?: DesiredDirection;
+  winsorizeAt?: number;
+  synced?: boolean;
+  syncedSource?: string;
+  syncedAt?: string;
+  certificationStatus?: CertificationStatus;
+  extendedConfig?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MetricSyncRequest {
+  factSources?: Array<{
+    name: string;
+    description?: string;
+    sql: string;
+    timestampColumn: string;
+    measures?: Array<{ column: string; type?: string; displayName?: string; desiredDirection?: DesiredDirection }>;
+    dimensions?: Array<{ column: string; type?: string }>;
+  }>;
+  metrics: Array<{
+    name: string;
+    displayName?: string;
+    description?: string;
+    metricType: MetricType;
+    event?: string;
+    fact?: string;
+    measure?: string;
+    desiredDirection?: DesiredDirection;
+    unit?: string;
+    winsorizeAt?: number;
+    certificationStatus?: CertificationStatus;
+    filters?: Array<{ dimension: string; operator: string; values: string[] }>;
+    timeframe?: { startDays?: number; endDays?: number };
+    numerator?: { fact: string; measure: string };
+    denominator?: { fact: string; measure: string };
+    percentile?: number;
+    funnelSteps?: Array<{ event?: string; fact?: string }>;
+  }>;
+  source?: string;
+}
+
+export interface MetricSyncResponse {
+  factSources: {
+    created: Array<{ name: string; id: string }>;
+    updated: Array<{ name: string; id: string }>;
+    unchanged: Array<{ name: string; id: string }>;
+  };
+  metrics: {
+    created: Array<{ name: string; id: string }>;
+    updated: Array<{ name: string; id: string }>;
+    unchanged: Array<{ name: string; id: string }>;
+    remoteOnly: Array<{ name: string; id: string; metricType: MetricType }>;
+  };
+  summary: {
+    totalFactSources: number;
+    totalMetrics: number;
+    created: number;
+    updated: number;
+    unchanged: number;
+  };
+  warnings?: string[];
+}
+
 /**
  * Bulk parameter operations response
  */

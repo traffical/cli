@@ -19,10 +19,16 @@ import {
 } from "../lib/config.ts";
 import { ApiClient, ValidationError, NotLinkedError } from "../lib/api.ts";
 import { parseFormatOption } from "../lib/output.ts";
+import {
+  findMetricsFile,
+  readMetricsFile,
+  metricsConfigToSyncRequest,
+} from "../lib/metrics-config.ts";
 
 export interface PushOptions {
   profile?: string;
   configPath?: string;
+  metricsFile?: string;
   apiBase?: string;
   dryRun?: boolean;
   prune?: boolean;
@@ -56,6 +62,16 @@ export interface PushResult {
     unchanged: string[];
     total: number;
   };
+  metrics: {
+    created: string[];
+    updated: string[];
+    unchanged: string[];
+    remoteOnly: string[];
+    certified: number;
+    total: number;
+    warnings?: string[];
+  };
+  metricsPath?: string;
 }
 
 /**
@@ -64,6 +80,7 @@ export interface PushResult {
 export async function pushConfig(options: {
   profile?: string;
   configPath?: string;
+  metricsFile?: string;
   apiBase?: string;
   dryRun?: boolean;
   prune?: boolean;
@@ -115,7 +132,29 @@ export async function pushConfig(options: {
     ([name, group]) => configPropertyGroupToApi(name, group)
   );
 
-  if (parameters.length === 0 && events.length === 0 && propertyGroups.length === 0) {
+  // Auto-detect metrics.yaml
+  const metricsPath = await findMetricsFile(options.metricsFile);
+  let metricsRequest = null;
+  if (metricsPath) {
+    try {
+      const metricsConfig = await readMetricsFile(metricsPath);
+      metricsRequest = metricsConfigToSyncRequest(metricsConfig);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new ValidationError(message);
+    }
+  }
+
+  const emptyMetrics: PushResult["metrics"] = {
+    created: [],
+    updated: [],
+    unchanged: [],
+    remoteOnly: [],
+    certified: 0,
+    total: 0,
+  };
+
+  if (parameters.length === 0 && events.length === 0 && propertyGroups.length === 0 && !metricsRequest) {
     return {
       success: true,
       project: { id: project.id, name: project.name },
@@ -140,6 +179,7 @@ export async function pushConfig(options: {
         unchanged: [],
         total: 0,
       },
+      metrics: emptyMetrics,
     };
   }
 
@@ -219,6 +259,46 @@ export async function pushConfig(options: {
       }
     }
 
+    // Dry run: compare metrics with remote
+    let metricsDry = emptyMetrics;
+    if (metricsRequest) {
+      const remoteMetrics = await client.listMetrics(projectId, { synced: true });
+      const remoteMetricNames = new Map(remoteMetrics.map((m) => [m.name, m]));
+
+      const metricsCreated: string[] = [];
+      const metricsUpdated: string[] = [];
+      const metricsUnchanged: string[] = [];
+
+      for (const metric of metricsRequest.metrics) {
+        const remote = remoteMetricNames.get(metric.name);
+        if (!remote) {
+          metricsCreated.push(metric.name);
+        } else if (
+          remote.metricType !== metric.metricType ||
+          (remote.description ?? null) !== (metric.description ?? null) ||
+          (remote.unit ?? null) !== (metric.unit ?? null) ||
+          (remote.desiredDirection ?? null) !== (metric.desiredDirection ?? null)
+        ) {
+          metricsUpdated.push(metric.name);
+        } else {
+          metricsUnchanged.push(metric.name);
+        }
+      }
+
+      const localMetricNames = new Set(metricsRequest.metrics.map((m) => m.name));
+      const metricsRemoteOnly = remoteMetrics.filter((m) => !localMetricNames.has(m.name)).map((m) => m.name);
+      const certifiedCount = metricsRequest.metrics.filter((m) => m.certificationStatus === "certified").length;
+
+      metricsDry = {
+        created: metricsCreated,
+        updated: metricsUpdated,
+        unchanged: metricsUnchanged,
+        remoteOnly: metricsRemoteOnly,
+        certified: certifiedCount,
+        total: metricsRequest.metrics.length,
+      };
+    }
+
     return {
       success: true,
       project: { id: project.id, name: project.name },
@@ -243,6 +323,8 @@ export async function pushConfig(options: {
         unchanged: groupsUnchanged,
         total: propertyGroups.length,
       },
+      metrics: metricsDry,
+      metricsPath: metricsPath ?? undefined,
     };
   }
 
@@ -277,6 +359,22 @@ export async function pushConfig(options: {
       events,
       source: "config.yaml",
     });
+  }
+
+  // Actual push - metrics
+  let metricsResult = emptyMetrics;
+  if (metricsRequest) {
+    const syncResult = await client.syncMetrics(projectId, metricsRequest);
+    const certifiedCount = metricsRequest.metrics.filter((m) => m.certificationStatus === "certified").length;
+    metricsResult = {
+      created: syncResult.metrics.created.map((m) => m.name),
+      updated: syncResult.metrics.updated.map((m) => m.name),
+      unchanged: syncResult.metrics.unchanged.map((m) => m.name),
+      remoteOnly: syncResult.metrics.remoteOnly.map((m) => m.name),
+      certified: certifiedCount,
+      total: metricsRequest.metrics.length,
+      warnings: syncResult.warnings,
+    };
   }
 
   // Handle --prune: archive orphaned synced parameters
@@ -317,6 +415,8 @@ export async function pushConfig(options: {
       unchanged: groupResult.unchanged.map((g) => g.name),
       total: propertyGroups.length,
     },
+    metrics: metricsResult,
+    metricsPath: metricsPath ?? undefined,
   };
 }
 
@@ -333,8 +433,12 @@ function printPushHuman(result: PushResult): void {
     console.log(`Pushing to ${chalk.bold(result.project.name)}...\n`);
   }
 
-  if (result.total === 0 && result.events.total === 0 && result.propertyGroups.total === 0) {
-    console.log(chalk.yellow("No parameters, events, or property groups in config file."));
+  if (result.metricsPath) {
+    console.log(chalk.dim(`Using metrics: ${result.metricsPath}\n`));
+  }
+
+  if (result.total === 0 && result.events.total === 0 && result.propertyGroups.total === 0 && result.metrics.total === 0) {
+    console.log(chalk.yellow("No parameters, events, property groups, or metrics in config files."));
     return;
   }
 
@@ -425,6 +529,48 @@ function printPushHuman(result: PushResult): void {
     console.log();
   }
 
+  // Metrics section
+  if (result.metrics.total > 0) {
+    console.log(chalk.bold(result.dryRun ? "Would change (Local → Remote) Metrics:" : "Local → Remote (Metrics):"));
+
+    if (result.metrics.created.length > 0) {
+      console.log(chalk.green(`  + ${result.metrics.created.length} ${result.dryRun ? "would be created" : "created"}`));
+      result.metrics.created.forEach((name) => console.log(chalk.dim(`    ${name}`)));
+    }
+
+    if (result.metrics.updated.length > 0) {
+      console.log(chalk.yellow(`  ~ ${result.metrics.updated.length} ${result.dryRun ? "would be updated" : "updated"}`));
+      result.metrics.updated.forEach((name) => console.log(chalk.dim(`    ${name}`)));
+    }
+
+    if (result.metrics.unchanged.length > 0) {
+      console.log(chalk.dim(`  = ${result.metrics.unchanged.length} ${result.dryRun ? "already in sync" : "unchanged"}`));
+    }
+
+    if (result.metrics.certified > 0) {
+      console.log(chalk.green(`  ✦ ${result.metrics.certified} certified`));
+    }
+
+    console.log();
+  }
+
+  if (result.metrics.remoteOnly.length > 0) {
+    console.log(chalk.yellow(`⚠ ${result.metrics.remoteOnly.length} orphaned synced metric${result.metrics.remoteOnly.length !== 1 ? "s" : ""} (not in your metrics.yaml):`));
+    result.metrics.remoteOnly.forEach((name) => console.log(chalk.dim(`  ${name}`)));
+    console.log();
+    console.log(
+      chalk.dim("Run 'traffical import metrics --all' to add them to your metrics.yaml.")
+    );
+    console.log();
+  }
+
+  if (result.metrics.warnings && result.metrics.warnings.length > 0) {
+    for (const warning of result.metrics.warnings) {
+      console.log(chalk.yellow(`⚠ ${warning}`));
+    }
+    console.log();
+  }
+
   if (result.dryRun) {
     console.log(chalk.cyan("✓ Dry run complete - no changes made"));
   } else {
@@ -437,6 +583,9 @@ function printPushHuman(result: PushResult): void {
     }
     if (result.events.total > 0) {
       parts.push(`${result.events.total} event${result.events.total !== 1 ? "s" : ""}`);
+    }
+    if (result.metrics.total > 0) {
+      parts.push(`${result.metrics.total} metric${result.metrics.total !== 1 ? "s" : ""}`);
     }
     console.log(chalk.green(`✓ Pushed ${parts.join(" and ")}`));
   }
@@ -456,7 +605,7 @@ export async function pushCommand(options: PushOptions): Promise<void> {
   }
 
   try {
-    const result = await pushConfig({ ...options, prune: options.prune });
+    const result = await pushConfig({ ...options, prune: options.prune, metricsFile: options.metricsFile });
 
     if (isJson) {
       console.log(JSON.stringify(result, null, 2));
