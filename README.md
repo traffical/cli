@@ -15,46 +15,55 @@ npx @traffical/cli init
 ## Quick Start
 
 ```bash
-# Initialize in your project
-traffical init --api-key <your-api-key>
+# One-time: authenticate (opens a browser via OAuth Device Flow)
+traffical login
 
-# Push local changes to Traffical
-traffical push
+# In your repo: link to a project and scaffold .traffical/
+traffical init
 
-# Pull updates from Traffical
-traffical pull
-
-# Bidirectional sync
+# Edit .traffical/config.yaml, then sync
 traffical sync
 ```
 
-## What `init` Creates
+`traffical init` runs `login` for you if you're not already authenticated,
+picks (or creates) a project, writes `.traffical/project.yaml` (the link),
+provisions a project-scoped SDK key into `.traffical/.env`, and scaffolds
+framework-specific templates.
 
-Running `traffical init` creates a `.traffical/` directory with:
+## What `init` creates
 
 ```
 .traffical/
-├── config.yaml      # Main configuration file
-├── AGENTS.md        # AI agent integration guide
-└── templates/       # Framework-specific code templates
-    ├── feature-flag.tsx
-    ├── ab-test.tsx
-    └── server.ts
+├── project.yaml   # repo → Traffical project link (commit this)
+├── config.yaml    # parameters, events, property groups (commit this)
+├── .env           # TRAFFICAL_API_KEY for your app runtime (gitignored)
+├── .gitignore     # auto-written: .env
+├── AGENTS.md      # quick reference for AI coding tools (committed at repo root)
+└── TEMPLATES.md   # framework-specific code patterns (commit this)
 ```
 
-The CLI automatically detects your framework (React, Next.js, Svelte, SvelteKit, Vue, Nuxt, Node.js) and generates appropriate templates.
+The CLI detects your framework (React, Next.js, Svelte, SvelteKit, Vue,
+Nuxt, Node.js) and writes templates accordingly. Existing files are
+preserved unless `--force` is passed.
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `init` | Initialize Traffical in a project, creates `.traffical/` directory and SDK key |
+| `login` | OAuth Device Flow authentication; persists session to `~/.config/traffical/auth.json` |
+| `logout` | Remove the local session |
+| `whoami` | Show active identity, linked project, token expiry |
+| `init` | One-shot setup: login → link → scaffold (`.traffical/`, SDK key, AGENTS.md, templates) |
+| `link` | Link the current repo to a project (writes `.traffical/project.yaml`) |
+| `unlink` | Remove the project link |
+| `org list \| use <key>` | List orgs you belong to / set the default org |
+| `project list \| create <name> \| use <key>` | Manage projects in the active org |
 | `push` | Push local config to Traffical (validates first) |
 | `pull` | Pull synced parameters from Traffical to local config |
 | `sync` | Bidirectional sync (local wins policy) |
 | `status` | Show current sync status |
 | `import <key>` | Import dashboard parameters (supports wildcards: `ui.*`, `*.enabled`) |
-| `integrate-ai-tools` | Add Traffical references to AI tool config files |
+| `generate-types` | Generate TypeScript types from `config.yaml` |
 
 ### `init` Options
 
@@ -323,48 +332,68 @@ traffical status --format json
 }
 ```
 
-## Environment Variables
+## Credential paths
 
-For CI/CD pipelines, credentials can be provided via environment variables:
+There are three ways the CLI gets a bearer token, in priority order:
+
+| Path | When to use | How |
+|------|-------------|-----|
+| `--api-key <token>` flag | One-off override | Per-command flag |
+| `TRAFFICAL_API_KEY` env | **CI** / org-scoped management | Long-lived org key, never refreshed |
+| `TRAFFICAL_API_TOKEN` env | Headless agent with a pre-minted JWT | Skips the device flow |
+| `~/.config/traffical/auth.json` | **Local dev** | Created by `traffical login`; auto-refreshes |
+| `~/.trafficalrc` | Legacy | Migrated automatically; prints a deprecation notice |
+
+For application runtime (your SDK calls in production), use the
+project-scoped SDK key that `traffical init` provisions to `.traffical/.env`.
+
+## Environment variables
 
 | Variable | Description |
 |----------|-------------|
-| `TRAFFICAL_API_KEY` | API key for authentication |
+| `TRAFFICAL_API_KEY` | Org-scoped key for CI; takes precedence over the session |
+| `TRAFFICAL_API_TOKEN` | Pre-minted WorkOS JWT (CI/agent); takes precedence over the session |
 | `TRAFFICAL_API_BASE` | API base URL (optional, for self-hosted) |
+| `TRAFFICAL_LOG=debug` | Verbose logging (tokens are always redacted) |
 
-**Priority order** (highest to lowest):
-1. Command-line flags (`--api-key`, `--api-base`)
-2. Environment variables (`TRAFFICAL_API_KEY`, `TRAFFICAL_API_BASE`)
-3. Profile from `~/.trafficalrc`
+## Exit codes
 
-## Exit Codes
-
-For scripting and CI/CD integration:
+For scripting, CI/CD, and AI-agent integration:
 
 | Code | Meaning |
 |------|---------|
 | `0` | Success |
 | `1` | Validation error (invalid config file) |
-| `2` | Authentication error (invalid or missing API key) |
+| `2` | Authentication error (not logged in / token invalid) |
 | `3` | Network/API error |
+| `4` | Not linked (no `.traffical/project.yaml`) |
 | `10` | Config drift detected (status command) |
 | `11` | Experiment needs attention |
 
-## Profiles
+## JSON output and agent-friendly behavior
 
-API keys are stored in `~/.trafficalrc`:
+The CLI is designed for use from AI agents, MCP-style tooling, and CI:
+
+- `--format json` on any command produces deterministic stdout output.
+- Errors in JSON mode include `{ code, message, hint, exit_code }`.
+- In non-TTY environments the CLI never prompts — pass `--yes` and the
+  required flags (`--org`, `--project`), or run `traffical login` first.
+- Human progress goes to stderr; machine output goes to stdout.
+- Tokens are always redacted in logs and error messages.
+
+## Profiles (legacy)
+
+`~/.trafficalrc` is the legacy auth path. New installs use the device-flow
+session at `~/.config/traffical/auth.json`. The legacy file is still read
+for back-compat — run `traffical login` to migrate.
 
 ```yaml
+# legacy ~/.trafficalrc — prefer `traffical login`
 default_profile: default
 profiles:
   default:
-    api_key: tk_xxx
-  staging:
-    api_key: tk_yyy
-    api_base: https://staging.traffical.io
+    api_key: traffical_sk_xxx
 ```
-
-Use with: `traffical push --profile staging`
 
 ## CI/CD Integration
 

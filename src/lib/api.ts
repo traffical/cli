@@ -4,7 +4,7 @@
  * HTTP client for communicating with the Traffical Control Plane API.
  */
 
-import { getApiKey, getApiBase } from "./auth.ts";
+import { getAccessToken, getApiBase } from "./auth.ts";
 import type {
   ApiOrganization,
   ApiProject,
@@ -31,6 +31,9 @@ export const EXIT_VALIDATION_ERROR = 1;
 export const EXIT_AUTH_ERROR = 2;
 export const EXIT_NETWORK_ERROR = 3;
 
+/** Repo is not linked to a Traffical project (.traffical/project.yaml missing) */
+export const EXIT_NOT_LINKED = 4;
+
 /** Config drift detected between local and remote (for status command) */
 export const EXIT_DRIFT_DETECTED = 10;
 
@@ -38,10 +41,19 @@ export const EXIT_DRIFT_DETECTED = 10;
 export const EXIT_EXPERIMENT_ATTENTION = 11;
 
 /**
- * Base class for CLI errors with exit codes
+ * Base class for CLI errors with exit codes.
+ *
+ * `code` is a stable machine-readable identifier (snake_case) — independent
+ * of the exit code, which classifies the error broadly. Agents should switch
+ * on `code` for handling, not `message`.
  */
 export class CliError extends Error {
-  constructor(message: string, public exitCode: number) {
+  constructor(
+    message: string,
+    public exitCode: number,
+    public code: string = "error",
+    public hint?: string,
+  ) {
     super(message);
     this.name = "CliError";
   }
@@ -51,8 +63,8 @@ export class CliError extends Error {
  * Validation error (exit code 1)
  */
 export class ValidationError extends CliError {
-  constructor(message: string) {
-    super(message, EXIT_VALIDATION_ERROR);
+  constructor(message: string, hint?: string) {
+    super(message, EXIT_VALIDATION_ERROR, "validation_error", hint);
     this.name = "ValidationError";
   }
 }
@@ -61,8 +73,8 @@ export class ValidationError extends CliError {
  * Authentication error (exit code 2)
  */
 export class AuthError extends CliError {
-  constructor(message: string) {
-    super(message, EXIT_AUTH_ERROR);
+  constructor(message: string, hint?: string) {
+    super(message, EXIT_AUTH_ERROR, "auth_error", hint ?? "Run 'traffical login' or set TRAFFICAL_API_KEY.");
     this.name = "AuthError";
   }
 }
@@ -71,9 +83,24 @@ export class AuthError extends CliError {
  * Network/API error (exit code 3)
  */
 export class NetworkError extends CliError {
-  constructor(message: string) {
-    super(message, EXIT_NETWORK_ERROR);
+  constructor(message: string, hint?: string) {
+    super(message, EXIT_NETWORK_ERROR, "network_error", hint);
     this.name = "NetworkError";
+  }
+}
+
+/**
+ * Repo not linked to a Traffical project (exit code 4).
+ */
+export class NotLinkedError extends CliError {
+  constructor(message?: string) {
+    super(
+      message ?? "This repo is not linked to a Traffical project.",
+      EXIT_NOT_LINKED,
+      "not_linked",
+      "Run 'traffical init' or 'traffical link' to link this repo."
+    );
+    this.name = "NotLinkedError";
   }
 }
 
@@ -83,7 +110,7 @@ export class NetworkError extends CliError {
  */
 export class DriftError extends CliError {
   constructor(message: string) {
-    super(message, EXIT_DRIFT_DETECTED);
+    super(message, EXIT_DRIFT_DETECTED, "drift_detected");
     this.name = "DriftError";
   }
 }
@@ -94,7 +121,7 @@ export class DriftError extends CliError {
  */
 export class ExperimentAttentionError extends CliError {
   constructor(message: string) {
-    super(message, EXIT_EXPERIMENT_ATTENTION);
+    super(message, EXIT_EXPERIMENT_ATTENTION, "experiment_attention");
     this.name = "ExperimentAttentionError";
   }
 }
@@ -125,7 +152,16 @@ export class ApiClient {
    * 3. Profile from ~/.trafficalrc
    */
   static async create(options: ApiClientOptions = {}): Promise<ApiClient> {
-    const apiKey = await getApiKey(options.profile, options.apiKey);
+    let apiKey: string;
+    try {
+      apiKey = await getAccessToken({
+        profile: options.profile,
+        apiKey: options.apiKey,
+        apiBase: options.apiBase,
+      });
+    } catch (err) {
+      throw new AuthError(err instanceof Error ? err.message : String(err));
+    }
     const apiBase = await getApiBase(options.profile, options.apiBase);
     return new ApiClient(apiKey, apiBase);
   }
@@ -251,6 +287,24 @@ export class ApiClient {
       `/v1/projects/${projectId}`
     );
     return result.project;
+  }
+
+  /**
+   * Create a new project under an organization.
+   */
+  async createProject(
+    orgId: string,
+    data: { key: string; name: string; description?: string }
+  ): Promise<ApiProject> {
+    const result = await this.request<{ project: ApiProject } | ApiProject>(
+      "POST",
+      `/v1/orgs/${orgId}/projects`,
+      data
+    );
+    // Endpoint returns the project either directly or wrapped under `.project`.
+    return ("project" in (result as Record<string, unknown>))
+      ? (result as { project: ApiProject }).project
+      : (result as ApiProject);
   }
 
   /**

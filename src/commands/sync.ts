@@ -18,6 +18,7 @@ import {
   findConfigFile,
   readConfigFile,
   writeConfigFile,
+  resolveProject,
   configParamToApi,
   apiParamToConfig,
   configEventToApi,
@@ -28,7 +29,7 @@ import {
   CONFIG_FILENAME,
   LEGACY_CONFIG_FILENAME,
 } from "../lib/config.ts";
-import { ApiClient, ValidationError } from "../lib/api.ts";
+import { ApiClient, ValidationError, NotLinkedError } from "../lib/api.ts";
 import { parseFormatOption } from "../lib/output.ts";
 import type { ConfigParameter, ConfigEvent, ConfigPropertyGroup } from "../lib/types.ts";
 
@@ -123,7 +124,11 @@ export async function syncConfig(options: {
 
   // Read and validate local config
   const config = await readConfigFile(configPath);
-  const projectId = config.project.id;
+  const link = await resolveProject();
+  if (!link) {
+    throw new NotLinkedError();
+  }
+  const projectId = link.projectId;
 
   // Create API client
   const client = await ApiClient.create({ profile: options.profile, apiBase: options.apiBase });

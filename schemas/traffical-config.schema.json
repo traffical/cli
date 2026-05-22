@@ -4,7 +4,7 @@
   "title": "TrafficalConfig",
   "description": "Traffical configuration file schema for traffical.yaml",
   "type": "object",
-  "required": ["version", "project", "parameters"],
+  "required": ["version", "parameters"],
   "properties": {
     "version": {
       "type": "string",
@@ -13,7 +13,7 @@
     },
     "project": {
       "type": "object",
-      "description": "Project identification",
+      "description": "Project identification (legacy — prefer .traffical/project.yaml)",
       "required": ["id", "orgId"],
       "properties": {
         "id": {

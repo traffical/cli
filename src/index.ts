@@ -15,8 +15,9 @@
  * Exit Codes:
  *   0  - Success
  *   1  - Validation error (invalid config)
- *   2  - Authentication error (bad API key)
+ *   2  - Authentication error (not logged in / token invalid)
  *   3  - Network/API error
+ *   4  - Not linked (no .traffical/project.yaml)
  *   10 - Config drift detected (status command)
  *   11 - Experiment needs attention
  */
@@ -30,6 +31,12 @@ import { syncCommand } from "./commands/sync.ts";
 import { statusCommand } from "./commands/status.ts";
 import { importCommand } from "./commands/import.ts";
 import { generateTypesCommand } from "./commands/generate-types.ts";
+import { loginCommand } from "./commands/login.ts";
+import { logoutCommand } from "./commands/logout.ts";
+import { whoamiCommand } from "./commands/whoami.ts";
+import { linkCommand, unlinkCommand } from "./commands/link.ts";
+import { orgListCommand, orgUseCommand } from "./commands/org.ts";
+import { projectListCommand, projectCreateCommand, projectUseCommand } from "./commands/project.ts";
 import { CliError, EXIT_VALIDATION_ERROR } from "./lib/api.ts";
 import { TRAFFICAL_DIR, CONFIG_FILENAME } from "./lib/config.ts";
 
@@ -41,9 +48,20 @@ function handleError(error: unknown, format?: string): never {
 
   if (error instanceof CliError) {
     if (isJson) {
-      console.log(JSON.stringify({ success: false, error: error.message }));
+      console.log(
+        JSON.stringify({
+          success: false,
+          code: error.code,
+          message: error.message,
+          hint: error.hint,
+          exit_code: error.exitCode,
+        })
+      );
     } else {
       console.error(chalk.red(`Error: ${error.message}`));
+      if (error.hint) {
+        console.error(chalk.dim(`Try: ${error.hint}`));
+      }
     }
     process.exit(error.exitCode);
   }
@@ -51,7 +69,14 @@ function handleError(error: unknown, format?: string): never {
   // Unknown errors default to validation error (exit 1)
   const message = error instanceof Error ? error.message : String(error);
   if (isJson) {
-    console.log(JSON.stringify({ success: false, error: message }));
+    console.log(
+      JSON.stringify({
+        success: false,
+        code: "unknown_error",
+        message,
+        exit_code: EXIT_VALIDATION_ERROR,
+      })
+    );
   } else {
     console.error(chalk.red(`Error: ${message}`));
   }
@@ -67,19 +92,201 @@ program
 
 // Global options
 program
-  .option("-p, --profile <name>", "Profile to use from ~/.trafficalrc")
+  .option("-p, --profile <name>", "Legacy ~/.trafficalrc profile (deprecated)")
   .option("-c, --config <path>", `Path to config file (default: ${TRAFFICAL_DIR}/${CONFIG_FILENAME})`)
-  .option("-b, --api-base <url>", "API base URL (overrides profile setting)")
-  .option("-j, --format <format>", "Output format: human (default) or json", "human");
+  .option("-b, --api-base <url>", "API base URL (overrides default / env / profile)")
+  .option("-j, --format <format>", "Output format: human (default) or json", "human")
+  .option("-q, --quiet", "Suppress non-essential output");
+
+// Login command
+program
+  .command("login")
+  .description("Authenticate with Traffical via browser (OAuth Device Flow)")
+  .option("--no-browser", "Print the URL/code instead of opening a browser")
+  .option("--token <jwt>", "Skip the device flow and seed the session with a pre-minted token (CI/agent use)")
+  .action(async (options) => {
+    const globalOpts = program.opts();
+    try {
+      await loginCommand({
+        apiBase: globalOpts.apiBase,
+        noBrowser: options.browser === false,
+        token: options.token,
+        format: globalOpts.format,
+      });
+    } catch (error) {
+      handleError(error, globalOpts.format);
+    }
+  });
+
+// Logout command
+program
+  .command("logout")
+  .description("Remove the local Traffical session")
+  .action(async () => {
+    const globalOpts = program.opts();
+    try {
+      await logoutCommand({ format: globalOpts.format });
+    } catch (error) {
+      handleError(error, globalOpts.format);
+    }
+  });
+
+// Whoami command
+program
+  .command("whoami")
+  .description("Show the active identity and linked project")
+  .action(async () => {
+    const globalOpts = program.opts();
+    try {
+      await whoamiCommand({ format: globalOpts.format });
+    } catch (error) {
+      handleError(error, globalOpts.format);
+    }
+  });
+
+// Link / Unlink commands
+program
+  .command("link")
+  .description("Link the current repo to a Traffical project (writes .traffical/project.yaml)")
+  .option("--org <keyOrId>", "Organization key or id")
+  .option("--project <keyOrId>", "Project key or id")
+  .option("-y, --yes", "Non-interactive (errors instead of prompting)")
+  .option("--force", "Overwrite an existing project link")
+  .action(async (options) => {
+    const globalOpts = program.opts();
+    try {
+      await linkCommand({
+        org: options.org,
+        project: options.project,
+        yes: options.yes,
+        force: options.force,
+        profile: globalOpts.profile,
+        apiBase: globalOpts.apiBase,
+        format: globalOpts.format,
+      });
+    } catch (error) {
+      handleError(error, globalOpts.format);
+    }
+  });
+
+program
+  .command("unlink")
+  .description("Remove the .traffical/project.yaml link (leaves config.yaml in place)")
+  .action(async () => {
+    const globalOpts = program.opts();
+    try {
+      await unlinkCommand({ format: globalOpts.format });
+    } catch (error) {
+      handleError(error, globalOpts.format);
+    }
+  });
+
+// Org commands
+const org = program.command("org").description("Manage Traffical organizations");
+org
+  .command("list")
+  .description("List organizations you belong to")
+  .action(async () => {
+    const globalOpts = program.opts();
+    try {
+      await orgListCommand({
+        profile: globalOpts.profile,
+        apiBase: globalOpts.apiBase,
+        format: globalOpts.format,
+      });
+    } catch (error) {
+      handleError(error, globalOpts.format);
+    }
+  });
+org
+  .command("use <key>")
+  .description("Set the default organization for commands that need one")
+  .action(async (key: string) => {
+    const globalOpts = program.opts();
+    try {
+      await orgUseCommand({
+        key,
+        profile: globalOpts.profile,
+        apiBase: globalOpts.apiBase,
+        format: globalOpts.format,
+      });
+    } catch (error) {
+      handleError(error, globalOpts.format);
+    }
+  });
+
+// Project commands
+const project = program.command("project").description("Manage Traffical projects");
+project
+  .command("list")
+  .description("List projects in the active organization")
+  .option("--org <keyOrId>", "Organization key or id (defaults to active org)")
+  .action(async (options) => {
+    const globalOpts = program.opts();
+    try {
+      await projectListCommand({
+        org: options.org,
+        profile: globalOpts.profile,
+        apiBase: globalOpts.apiBase,
+        format: globalOpts.format,
+      });
+    } catch (error) {
+      handleError(error, globalOpts.format);
+    }
+  });
+project
+  .command("create <name>")
+  .description("Create a new project in the active organization")
+  .option("--key <key>", "Project key (auto-derived from name if omitted)")
+  .option("--description <text>", "Project description")
+  .option("--org <keyOrId>", "Organization key or id (defaults to active org)")
+  .option("--link", "Also link this repo to the new project")
+  .action(async (name: string, options) => {
+    const globalOpts = program.opts();
+    try {
+      await projectCreateCommand({
+        name,
+        key: options.key,
+        description: options.description,
+        org: options.org,
+        link: options.link,
+        profile: globalOpts.profile,
+        apiBase: globalOpts.apiBase,
+        format: globalOpts.format,
+      });
+    } catch (error) {
+      handleError(error, globalOpts.format);
+    }
+  });
+project
+  .command("use <keyOrId>")
+  .description("Link this repo to a project (alias of 'traffical link --project <keyOrId>')")
+  .option("--org <keyOrId>", "Organization key or id")
+  .action(async (keyOrId: string, options) => {
+    const globalOpts = program.opts();
+    try {
+      await projectUseCommand({
+        key: keyOrId,
+        org: options.org,
+        profile: globalOpts.profile,
+        apiBase: globalOpts.apiBase,
+        format: globalOpts.format,
+      });
+    } catch (error) {
+      handleError(error, globalOpts.format);
+    }
+  });
 
 // Init command
 program
   .command("init")
-  .description("Initialize Traffical in a project (creates .traffical/ directory)")
-  .option("--api-key <key>", "API key for authentication (if omitted, reads from TRAFFICAL_API_KEY env var or ~/.trafficalrc)")
+  .description("Initialize Traffical in a project (login + link + scaffold)")
+  .option("--api-key <key>", "Override the bearer token (otherwise: session / TRAFFICAL_API_KEY)")
   .option("--framework <framework>", "Skip framework detection (react, nextjs, svelte, sveltekit, vue, nuxt, node)")
-  .option("--project <id>", "Project ID to use (skips project selection prompt)")
-  .option("-y, --yes", "Auto-accept detected defaults (non-interactive mode)")
+  .option("--org <keyOrId>", "Organization to link (skips org selection)")
+  .option("--project <keyOrId>", "Project to link (skips project selection)")
+  .option("-y, --yes", "Non-interactive mode: accept defaults, error if input would be required")
+  .option("--force", "Overwrite existing config.yaml / project.yaml / .env files")
   .option("--no-sdk-key", "Skip automatic SDK key creation")
   .action(async (options) => {
     const globalOpts = program.opts();
@@ -91,8 +298,10 @@ program
         format: globalOpts.format,
         sdkKey: options.sdkKey,
         framework: options.framework,
+        org: options.org,
         project: options.project,
         yes: options.yes,
+        force: options.force,
       });
     } catch (error) {
       handleError(error, globalOpts.format);
