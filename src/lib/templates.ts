@@ -257,22 +257,46 @@ export function middleware(request: NextRequest) {
 
   svelte: `# Traffical Svelte Integration
 
-Code patterns for Svelte projects.
+Code patterns for Svelte 5 projects.
+
+## Setup (root layout)
+
+\`\`\`svelte
+<!-- src/routes/+layout.svelte -->
+<script lang="ts">
+  import { TrafficalProvider } from "@traffical/svelte";
+
+  let { data, children } = $props();
+</script>
+
+<TrafficalProvider
+  config={{
+    orgId: "org_xxx",
+    projectId: "proj_xxx",
+    env: "production",
+    apiKey: import.meta.env.VITE_TRAFFICAL_API_KEY,
+    initialBundle: data?.traffical?.bundle,
+  }}
+>
+  {@render children()}
+</TrafficalProvider>
+\`\`\`
 
 ## Feature Flag
 
 \`\`\`svelte
 <script lang="ts">
-  import { getTraffical } from "@traffical/svelte";
+  import { useTraffical } from "@traffical/svelte";
 
-  const { params } = getTraffical({
+  // \`params\` is a Svelte 5 runes proxy — read it as params["key"], not $params
+  const { params } = useTraffical({
     defaults: {
       "feature.new_checkout": false,
     },
   });
 </script>
 
-{#if $params["feature.new_checkout"]}
+{#if params["feature.new_checkout"]}
   <NewCheckout />
 {:else}
   <CurrentCheckout />
@@ -311,22 +335,22 @@ Code patterns for Svelte projects.
 
 \`\`\`svelte
 <script lang="ts">
-  import { getTraffical } from "@traffical/svelte";
+  import { useTraffical } from "@traffical/svelte";
 
   // Default: full tracking (recommended)
-  const { params } = getTraffical({
+  const full = useTraffical({
     defaults: { "feature.new_checkout": false },
   });
 
   // Manual exposure tracking (below-the-fold content)
-  const { params, trackExposure } = getTraffical({
+  const deferred = useTraffical({
     defaults: { "feature.new_checkout": false },
     tracking: "decision",
   });
-  // Call trackExposure() when visible
+  // Call deferred.trackExposure() when the content becomes visible
 
   // No tracking (SSR, tests)
-  const { params } = getTraffical({
+  const untracked = useTraffical({
     defaults: { "feature.new_checkout": false },
     tracking: "none",
   });
@@ -374,22 +398,22 @@ Code patterns for SvelteKit projects.
 
 \`\`\`svelte
 <script lang="ts">
-  import { getTraffical } from "@traffical/svelte";
+  import { useTraffical } from "@traffical/svelte";
 
   // Default: full tracking (recommended)
-  const { params } = getTraffical({
+  const full = useTraffical({
     defaults: { "feature.new_checkout": false },
   });
 
   // Manual exposure tracking (below-the-fold content)
-  const { params, trackExposure } = getTraffical({
+  const deferred = useTraffical({
     defaults: { "feature.new_checkout": false },
     tracking: "decision",
   });
-  // Call trackExposure() when visible
+  // Call deferred.trackExposure() when the content becomes visible
 
   // No tracking (SSR, tests)
-  const { params } = getTraffical({
+  const untracked = useTraffical({
     defaults: { "feature.new_checkout": false },
     tracking: "none",
   });
@@ -478,224 +502,6 @@ export const handle: Handle = async ({ event, resolve }) => {
 
   return resolve(event);
 };
-\`\`\`
-`,
-
-  vue: `# Traffical Vue Integration
-
-Code patterns for Vue projects.
-
-## Feature Flag
-
-\`\`\`vue
-<script setup lang="ts">
-import { useTraffical } from "@traffical/vue";
-
-const { params } = useTraffical({
-  defaults: {
-    "feature.new_checkout": false,
-  },
-});
-</script>
-
-<template>
-  <NewCheckout v-if="params['feature.new_checkout']" />
-  <CurrentCheckout v-else />
-</template>
-\`\`\`
-
-## A/B Test with Event Tracking
-
-\`\`\`vue
-<script setup lang="ts">
-import { useTraffical } from "@traffical/vue";
-
-const { params, track } = useTraffical({
-  defaults: {
-    "ui.cta.text": "Buy Now",
-    "ui.cta.color": "#2563eb",
-    "pricing.discount": 0,
-  },
-});
-
-function handlePurchase(amount: number) {
-  // track() has the decisionId automatically bound
-  track("purchase", { value: amount });
-}
-</script>
-
-<template>
-  <button
-    :style="{ backgroundColor: params['ui.cta.color'] }"
-    @click="handlePurchase(99)"
-  >
-    {{ params["ui.cta.text"] }}
-  </button>
-</template>
-\`\`\`
-
-## Tracking Modes
-
-\`\`\`vue
-<script setup lang="ts">
-import { useTraffical } from "@traffical/vue";
-
-// Default: full tracking (recommended)
-const { params } = useTraffical({
-  defaults: { "feature.new_checkout": false },
-});
-
-// Manual exposure tracking (below-the-fold content)
-const { params, trackExposure } = useTraffical({
-  defaults: { "feature.new_checkout": false },
-  tracking: "decision",
-});
-// Call trackExposure() when visible
-
-// No tracking (SSR, tests)
-const { params } = useTraffical({
-  defaults: { "feature.new_checkout": false },
-  tracking: "none",
-});
-</script>
-\`\`\`
-`,
-
-  nuxt: `# Traffical Nuxt Integration
-
-Code patterns for Nuxt projects.
-
-## Client-Side Component
-
-\`\`\`vue
-<script setup lang="ts">
-import { useTraffical } from "@traffical/vue";
-
-const { params, track } = useTraffical({
-  defaults: {
-    "feature.new_checkout": false,
-    "ui.cta.text": "Buy Now",
-    "ui.cta.color": "#2563eb",
-  },
-});
-
-function handlePurchase(amount: number) {
-  // track() has the decisionId automatically bound
-  track("purchase", { value: amount });
-}
-</script>
-
-<template>
-  <NewCheckout v-if="params['feature.new_checkout']" @complete="handlePurchase(99)" />
-  <button
-    v-else
-    :style="{ backgroundColor: params['ui.cta.color'] }"
-    @click="handlePurchase(99)"
-  >
-    {{ params["ui.cta.text"] }}
-  </button>
-</template>
-\`\`\`
-
-## Tracking Modes
-
-\`\`\`vue
-<script setup lang="ts">
-import { useTraffical } from "@traffical/vue";
-
-// Default: full tracking (recommended)
-const { params } = useTraffical({
-  defaults: { "feature.new_checkout": false },
-});
-
-// Manual exposure tracking (below-the-fold content)
-const { params, trackExposure } = useTraffical({
-  defaults: { "feature.new_checkout": false },
-  tracking: "decision",
-});
-// Call trackExposure() when visible
-
-// No tracking (SSR, tests)
-const { params } = useTraffical({
-  defaults: { "feature.new_checkout": false },
-  tracking: "none",
-});
-</script>
-\`\`\`
-
-## Server Route (server/api/*.ts)
-
-\`\`\`typescript
-import { createTrafficalClient } from "@traffical/node";
-
-const traffical = await createTrafficalClient({
-  orgId: process.env.TRAFFICAL_ORG_ID!,
-  projectId: process.env.TRAFFICAL_PROJECT_ID!,
-  env: process.env.TRAFFICAL_ENV || "production",
-  apiKey: process.env.TRAFFICAL_API_KEY!,
-});
-
-export default defineEventHandler(async (event) => {
-  const userId = event.context.user?.id || "anonymous";
-
-  const params = traffical.getParams({
-    context: { userId },
-    defaults: {
-      "pricing.discount": 0,
-      "feature.show_reviews": true,
-    },
-  });
-
-  return {
-    discount: params["pricing.discount"],
-    showReviews: params["feature.show_reviews"],
-  };
-});
-\`\`\`
-
-## Server Middleware (server/middleware/*.ts)
-
-\`\`\`typescript
-import { createTrafficalClient } from "@traffical/node";
-
-const traffical = await createTrafficalClient({
-  orgId: process.env.TRAFFICAL_ORG_ID!,
-  projectId: process.env.TRAFFICAL_PROJECT_ID!,
-  env: process.env.TRAFFICAL_ENV || "production",
-  apiKey: process.env.TRAFFICAL_API_KEY!,
-});
-
-export default defineEventHandler(async (event) => {
-  const userId = getCookie(event, "userId") || "anonymous";
-
-  const params = traffical.getParams({
-    context: { userId },
-    defaults: {
-      "feature.maintenance_mode": false,
-    },
-  });
-
-  if (params["feature.maintenance_mode"]) {
-    throw createError({
-      statusCode: 503,
-      message: "Maintenance mode",
-    });
-  }
-});
-\`\`\`
-
-## Conversion Tracking
-
-\`\`\`typescript
-export default defineEventHandler(async (event) => {
-  const { orderTotal } = await readBody(event);
-  const userId = event.context.user?.id;
-
-  // Track conversion
-  traffical.track("purchase", { value: orderTotal }, { unitKey: userId });
-
-  return { success: true };
-});
 \`\`\`
 `,
 
@@ -853,10 +659,6 @@ function getTemplateContent(framework: Framework): string {
       return TEMPLATES.sveltekit;
     case "svelte":
       return TEMPLATES.svelte;
-    case "nuxt":
-      return TEMPLATES.nuxt;
-    case "vue":
-      return TEMPLATES.vue;
     case "express":
     case "fastify":
     case "hono":

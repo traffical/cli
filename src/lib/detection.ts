@@ -84,12 +84,14 @@ async function detectLanguage(dir: string): Promise<Language> {
  * Detection priority (first match wins):
  * 1. SvelteKit (svelte.config.js + @sveltejs/kit)
  * 2. Svelte (svelte.config.js without kit)
- * 3. Nuxt (nuxt.config.ts/js or @nuxt/core)
- * 4. Next.js (next.config.js/ts or next in deps)
- * 5. Vue (vue in deps, not nuxt)
- * 6. React (react in deps)
- * 7. Node.js (fallback for JS/TS projects)
- * 8. Unknown
+ * 3. Next.js (next.config.js/ts or next in deps)
+ * 4. React (react in deps)
+ * 5. Node.js (fallback for JS/TS projects)
+ * 6. Unknown
+ *
+ * Note: Vue/Nuxt are not detected as first-class frameworks — there is no
+ * @traffical/vue package yet, so such projects fall through to the Node
+ * backend default. Re-add detection here when the Vue SDK ships.
  */
 export async function detectFramework(projectDir: string): Promise<DetectedStack> {
   const signals: string[] = [];
@@ -129,23 +131,6 @@ export async function detectFramework(projectDir: string): Promise<DetectedStack
     };
   }
 
-  // Check for Nuxt
-  const hasNuxtConfig =
-    (await fileExists(join(projectDir, "nuxt.config.ts"))) ||
-    (await fileExists(join(projectDir, "nuxt.config.js")));
-  const hasNuxt = hasDependency(pkg, "nuxt") || hasDependency(pkg, "@nuxt/core");
-
-  if (hasNuxtConfig || hasNuxt) {
-    if (hasNuxtConfig) signals.push("nuxt.config found");
-    if (hasNuxt) signals.push("nuxt in dependencies");
-    return {
-      language,
-      framework: "nuxt",
-      confidence: "high",
-      signals,
-    };
-  }
-
   // Check for Next.js
   const hasNextConfig =
     (await fileExists(join(projectDir, "next.config.js"))) ||
@@ -160,17 +145,6 @@ export async function detectFramework(projectDir: string): Promise<DetectedStack
       language,
       framework: "nextjs",
       confidence: "high",
-      signals,
-    };
-  }
-
-  // Check for Vue (but not Nuxt, which was already checked)
-  if (hasDependency(pkg, "vue")) {
-    signals.push("vue in dependencies");
-    return {
-      language,
-      framework: "vue",
-      confidence: "medium",
       signals,
     };
   }
@@ -237,9 +211,6 @@ export function getSdkPackage(framework: Framework): string {
     case "svelte":
     case "sveltekit":
       return "@traffical/svelte";
-    case "vue":
-    case "nuxt":
-      return "@traffical/vue";
     case "node":
     default:
       return "@traffical/node";
@@ -261,8 +232,6 @@ export const SUPPORTED_FRAMEWORKS: Array<{ value: Framework; name: string }> = [
   { value: "nextjs", name: "Next.js" },
   { value: "svelte", name: "Svelte" },
   { value: "sveltekit", name: "SvelteKit" },
-  { value: "vue", name: "Vue" },
-  { value: "nuxt", name: "Nuxt" },
   { value: "node", name: "Node.js (Backend)" },
 ];
 

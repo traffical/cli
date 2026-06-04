@@ -291,7 +291,7 @@ program
   .command("init")
   .description("Initialize Traffical in a project (login + link + scaffold)")
   .option("--api-key <key>", "Override the bearer token (otherwise: session / TRAFFICAL_API_KEY)")
-  .option("--framework <framework>", "Skip framework detection (react, nextjs, svelte, sveltekit, vue, nuxt, node)")
+  .option("--framework <framework>", "Skip framework detection (react, nextjs, svelte, sveltekit, node)")
   .option("--org <keyOrId>", "Organization to link (skips org selection)")
   .option("--project <keyOrId>", "Project to link (skips project selection)")
   .option("-y, --yes", "Non-interactive mode: accept defaults, error if input would be required")

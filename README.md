@@ -70,7 +70,7 @@ preserved unless `--force` is passed.
 | Flag | Description |
 |------|-------------|
 | `--api-key <key>` | API key for authentication |
-| `--framework <name>` | Skip framework detection (react, nextjs, svelte, sveltekit, vue, nuxt, node) |
+| `--framework <name>` | Skip framework detection (react, nextjs, svelte, sveltekit, node) |
 | `--project <id>` | Project ID (skip interactive selection) |
 | `--yes` | Accept all defaults without prompting |
 
