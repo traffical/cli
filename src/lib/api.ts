@@ -56,6 +56,8 @@ export class CliError extends Error {
     public exitCode: number,
     public code: string = "error",
     public hint?: string,
+    /** Optional structured payload (e.g. the choices that resolve the error). */
+    public details?: unknown,
   ) {
     super(message);
     this.name = "CliError";
@@ -66,8 +68,8 @@ export class CliError extends Error {
  * Validation error (exit code 1)
  */
 export class ValidationError extends CliError {
-  constructor(message: string, hint?: string) {
-    super(message, EXIT_VALIDATION_ERROR, "validation_error", hint);
+  constructor(message: string, hint?: string, details?: unknown) {
+    super(message, EXIT_VALIDATION_ERROR, "validation_error", hint, details);
     this.name = "ValidationError";
   }
 }

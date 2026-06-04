@@ -203,8 +203,14 @@ async function ensureLinked(
     } else if (orgs.length === 1) {
       org = orgs[0]!;
     } else if (!interactive) {
+      // Both org and project may be ambiguous; name both flags up front so the
+      // agent passes them together instead of failing once per axis. The org
+      // list is attached as details so no separate `org list` call is needed.
       throw new ValidationError(
-        "Multiple organizations — pass --org <key>, or run 'traffical org use <key>' first."
+        `Multiple organizations (${orgs.length}) — pass --org <key> (and --project <key>).`,
+        `Available orgs: ${orgs.map((o) => o.key).join(", ")}. ` +
+          `List projects with: traffical project list --org <key>`,
+        { needs: ["org", "project"], orgs: orgs.map((o) => ({ key: o.key, name: o.name, id: o.id })) }
       );
     } else {
       org = await pickOrg(orgs);
@@ -238,7 +244,9 @@ async function ensureLinked(
       project = projects[0]!;
     } else if (!interactive) {
       throw new ValidationError(
-        `Multiple projects in ${org.name} — pass --project <key>.`
+        `Multiple projects in ${org.name} (${projects.length}) — pass --project <key>.`,
+        `Available projects: ${projects.map((p) => p.key).join(", ")}`,
+        { needs: ["project"], org: org.key, projects: projects.map((p) => ({ key: p.key, name: p.name, id: p.id })) }
       );
     } else {
       const choice = await pickProject(projects);

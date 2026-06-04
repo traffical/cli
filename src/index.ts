@@ -64,6 +64,7 @@ function handleError(error: unknown, format?: string): never {
           message: error.message,
           hint: error.hint,
           exit_code: error.exitCode,
+          ...(error.details !== undefined ? { details: error.details } : {}),
         })
       );
     } else {
@@ -144,10 +145,16 @@ program
 program
   .command("whoami")
   .description("Show the active identity and linked project")
-  .action(async () => {
+  .option("--verify", "Validate the session against the server (live check, not just the cached token)")
+  .action(async (opts) => {
     const globalOpts = program.opts();
     try {
-      await whoamiCommand({ format: globalOpts.format });
+      await whoamiCommand({
+        format: globalOpts.format,
+        profile: globalOpts.profile,
+        apiBase: globalOpts.apiBase,
+        verify: opts.verify,
+      });
     } catch (error) {
       handleError(error, globalOpts.format);
     }
