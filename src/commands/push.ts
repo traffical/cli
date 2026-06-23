@@ -620,7 +620,7 @@ export async function pushCommand(options: PushOptions): Promise<void> {
       console.log(chalk.red(`\n✗ ${err.message}`));
       console.log();
       console.log(chalk.dim("Fix the errors above and try again."));
-      console.log(chalk.dim("Schema reference: https://docs.traffical.io/config-as-code/schema"));
+      console.log(chalk.dim("Schema reference: https://docs.traffical.io/tools/config-file"));
     }
     throw err;
   }

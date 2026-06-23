@@ -193,7 +193,7 @@ export async function writeMetricsFile(
     `#`,
     `# Metrics defined here are synced with Traffical via 'traffical push'.`,
     `# Synced metrics become read-only in the dashboard.`,
-    `# Learn more: https://docs.traffical.io/config-as-code/metrics`,
+    `# Learn more: https://docs.traffical.io/tools/config-file#metrics-yaml`,
     ``,
   ].join("\n");
 

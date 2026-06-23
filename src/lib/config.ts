@@ -563,7 +563,7 @@ function generateExampleSection(): string {
 #       borderRadius: 8
 #
 # Supported types: string, number, boolean, json
-# Learn more: https://docs.traffical.io/config-as-code/parameters
+# Learn more: https://docs.traffical.io/tools/config-file#parameters
 #
 # ──────────────────────────────────────────────────────────────────────────────
 # Example event definitions:
@@ -596,7 +596,7 @@ function generateExampleSection(): string {
 #     description: User initiates checkout
 #
 # Supported valueTypes: currency, count, rate, boolean
-# Learn more: https://docs.traffical.io/config-as-code/events
+# Learn more: https://docs.traffical.io/tools/config-file#events
 #
 # ──────────────────────────────────────────────────────────────────────────────
 # Example property groups (reusable schemas across events):
@@ -613,7 +613,7 @@ function generateExampleSection(): string {
 #         type: string
 #         dimension: true
 #
-# Learn more: https://docs.traffical.io/config-as-code/event-schema
+# Learn more: https://docs.traffical.io/tools/config-file#property-groups
 # ──────────────────────────────────────────────────────────────────────────────
 `;
 }
@@ -699,7 +699,7 @@ export async function writeConfigFile(
   header += `# Parameters defined here are synced with Traffical.\n`;
   header += `# Base defaults become read-only in the dashboard.\n`;
   header += `# Project link lives in .traffical/project.yaml.\n`;
-  header += `# Learn more: https://docs.traffical.io/config-as-code\n`;
+  header += `# Learn more: https://docs.traffical.io/tools/config-file\n`;
   header += `\n`;
 
   // Build the grouped config for output
