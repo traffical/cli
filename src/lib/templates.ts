@@ -274,7 +274,9 @@ Code patterns for Svelte 5 projects.
     orgId: "org_xxx",
     projectId: "proj_xxx",
     env: "production",
-    apiKey: import.meta.env.VITE_TRAFFICAL_API_KEY,
+    // Publishable key — this value ships to the browser. Never put
+    // TRAFFICAL_API_KEY (the server key) behind a VITE_/PUBLIC_ variable.
+    apiKey: import.meta.env.VITE_TRAFFICAL_PUBLISHABLE_KEY,
     initialBundle: data?.traffical?.bundle,
   }}
 >

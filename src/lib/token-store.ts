@@ -175,9 +175,26 @@ export async function withLock<T>(
   }
 }
 
-/** Mask a token for safe display. Keeps first 12 chars + "…". */
+/**
+ * Mask a credential for safe display.
+ *
+ * Traffical API keys are masked as `traffical_<kind>_…<last4>`, matching how the
+ * dashboard and the control plane's stored `key_prefix` render them — so a key in
+ * CLI output can be matched against the one in Settings → API Keys. Revealing the
+ * last 4 of a 40-character base62 body costs ~24 of 238 bits.
+ *
+ * Anything else (OAuth session tokens from `traffical login`, which carry no
+ * kind and no stable prefix) keeps the old leading-12 form.
+ */
 export function redactToken(token: string | undefined | null): string {
   if (!token) return "<none>";
+
+  const apiKey = /^(traffical_(?:pk|sk|mk|ak)_)([A-Za-z0-9]+)$/.exec(token);
+  if (apiKey) {
+    const [, prefix, body] = apiKey;
+    return body.length <= 4 ? `${prefix}…` : `${prefix}…${body.slice(-4)}`;
+  }
+
   if (token.length <= 12) return "***";
   return `${token.slice(0, 12)}…`;
 }

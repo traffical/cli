@@ -36,7 +36,7 @@ framework-specific templates.
 .traffical/
 ├── project.yaml   # repo → Traffical project link (commit this)
 ├── config.yaml    # parameters, events, property groups (commit this)
-├── .env           # TRAFFICAL_API_KEY for your app runtime (gitignored)
+├── .env           # TRAFFICAL_API_KEY (server) + TRAFFICAL_PUBLISHABLE_KEY (client), gitignored
 ├── .gitignore     # auto-written: .env
 ├── AGENTS.md      # quick reference for AI coding tools (committed at repo root)
 └── TEMPLATES.md   # framework-specific code patterns (commit this)
@@ -351,7 +351,8 @@ project-scoped SDK key that `traffical init` provisions to `.traffical/.env`.
 
 | Variable | Description |
 |----------|-------------|
-| `TRAFFICAL_API_KEY` | Org-scoped key for CI; takes precedence over the session |
+| `TRAFFICAL_API_KEY` | Key the CLI authenticates with; takes precedence over the session. For CI this is a management key (`traffical_mk_…`) — the CLI writes control-plane entities, which a `pk`/`sk` key cannot do. Note `traffical init` also writes this name into `.traffical/.env`, there holding the **server SDK** key for your app runtime. |
+| `TRAFFICAL_PUBLISHABLE_KEY` | Written by `traffical init` into `.traffical/.env`. The publishable key (`traffical_pk_…`) for client-facing code — this is the only one safe to expose through `PUBLIC_`/`NEXT_PUBLIC_`/`VITE_` variables. Not read by the CLI itself. |
 | `TRAFFICAL_API_TOKEN` | Pre-minted WorkOS JWT (CI/agent); takes precedence over the session |
 | `TRAFFICAL_API_BASE` | API base URL (optional, for self-hosted) |
 | `TRAFFICAL_LOG=debug` | Verbose logging (tokens are always redacted) |
@@ -392,7 +393,7 @@ for back-compat — run `traffical login` to migrate.
 default_profile: default
 profiles:
   default:
-    api_key: traffical_sk_xxx
+    api_key: traffical_mk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
 ## CI/CD Integration

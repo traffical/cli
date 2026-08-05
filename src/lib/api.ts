@@ -485,16 +485,27 @@ export class ApiClient {
 
   /**
    * Create an API key for an organization.
-   * Requires mgmt:write scope on the calling key.
+   * Requires the `api_keys:manage` permission on the calling credential.
+   *
+   * `kind` selects the key class and therefore which surface the key can reach:
+   * `pk` publishable (client-facing apps), `sk` server-side SDK, `mk` management,
+   * `ak` admin. Older control planes predate kinds and derive one from `scopes`
+   * instead, so both are sent — a control plane that understands `kind` ignores
+   * `scopes`, and one that does not still gets the right class.
    */
   async createApiKey(orgId: string, options: {
     name: string;
     projectId?: string;
+    kind?: "pk" | "sk" | "mk" | "ak";
     scopes: string[];
-  }): Promise<{ key: string; apiKey: { id: string; name: string; keyPrefix: string; scopes: string[] } }> {
+  }): Promise<{
+    key: string;
+    apiKey: { id: string; name: string; keyPrefix: string; kind?: string; scopes?: string[] };
+  }> {
     return this.request("POST", `/v1/orgs/${orgId}/api-keys`, {
       name: options.name,
       projectId: options.projectId,
+      kind: options.kind,
       scopes: options.scopes,
     });
   }
