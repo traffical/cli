@@ -211,7 +211,7 @@ When `allowedValues` are set, the Traffical dashboard renders a dropdown selecto
 
 ### Events
 
-Events define the metrics you want to track in your experiments and analytics. They are synced to Traffical alongside your parameters.
+Events define the metrics you want to track for experimentation and analytics. They are synced to Traffical alongside your parameters.
 
 ```yaml
 # .traffical/config.yaml
@@ -369,7 +369,7 @@ For scripting, CI/CD, and AI-agent integration:
 | `3` | Network/API error |
 | `4` | Not linked (no `.traffical/project.yaml`) |
 | `10` | Config drift detected (status command) |
-| `11` | Experiment needs attention |
+| `11` | Policy needs attention |
 
 ## JSON output and agent-friendly behavior
 

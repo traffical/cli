@@ -19,7 +19,7 @@
  *   3  - Network/API error
  *   4  - Not linked (no .traffical/project.yaml)
  *   10 - Config drift detected (status command)
- *   11 - Experiment needs attention
+ *   11 - Policy needs attention
  */
 
 import { Command } from "commander";

@@ -40,7 +40,7 @@ export const EXIT_NOT_LINKED = 4;
 /** Config drift detected between local and remote (for status command) */
 export const EXIT_DRIFT_DETECTED = 10;
 
-/** Experiment needs attention (low traffic, failed policies, etc.) */
+/** Policy needs attention (low traffic, degraded health, etc.) */
 export const EXIT_EXPERIMENT_ATTENTION = 11;
 
 /**
@@ -121,8 +121,8 @@ export class DriftError extends CliError {
 }
 
 /**
- * Experiment needs attention (exit code 11)
- * Used when an experiment has issues (low traffic, failed policies, etc.)
+ * Policy needs attention (exit code 11)
+ * Used when a policy has issues (low traffic, degraded health, etc.)
  */
 export class ExperimentAttentionError extends CliError {
   constructor(message: string) {
