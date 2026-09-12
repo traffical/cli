@@ -45,6 +45,7 @@ export interface TrafficalConfig {
   }>;
   events?: Record<string, ConfigEvent>;
   propertyGroups?: Record<string, ConfigPropertyGroup>;
+  attributes?: Record<string, ConfigAttribute>;
 }
 
 /**
@@ -444,6 +445,129 @@ export interface PropertyGroupSyncResponse {
     updated: number;
     unchanged: number;
   };
+}
+
+// =============================================================================
+// Context Attribute Types (attributes: block in traffical.yaml)
+// =============================================================================
+
+/** Attribute value types (mirrors control-plane AttributeType) */
+export type AttributeType = "string" | "number" | "boolean" | "timestamp";
+
+/** String narrowing formats (mirrors control-plane AttributeFormat) */
+export type AttributeFormat = "enum" | "semver" | "country" | "url";
+
+/** Whether the SDK may log this attribute alongside decisions */
+export type AttributeLogging = "never" | "allowed" | "always";
+
+/** Training hints consumed by the bandit encoder (P3) */
+export interface AttributeEncoding {
+  binning?: "none" | "quantile";
+  topK?: number;
+}
+
+/** Enum value as stored on the control plane */
+export interface AttributeValue {
+  value: string;
+  label?: string;
+  description?: string;
+}
+
+/**
+ * Attribute definition in traffical.yaml.
+ * `values` accepts either a plain list of strings or a map of value → description.
+ */
+export interface ConfigAttribute {
+  type: AttributeType;
+  format?: AttributeFormat;
+  values?: string[] | Record<string, string>;
+  range?: [number, number];
+  label?: string;
+  description?: string;
+  identifier?: boolean;
+  logging?: AttributeLogging;
+  breakdown?: boolean;
+  encoding?: AttributeEncoding;
+}
+
+/**
+ * API attribute definition response (control-plane AttributeDefinition).
+ */
+export interface ApiAttributeDefinition {
+  id: string;
+  projectId: string;
+  key: string;
+  label?: string;
+  description?: string;
+  type: AttributeType;
+  format?: AttributeFormat;
+  values?: AttributeValue[];
+  range?: [number, number];
+  identifier: boolean;
+  logging: AttributeLogging;
+  breakdown: boolean;
+  encoding?: AttributeEncoding;
+  managedBy: "user" | "system";
+  source?: "sdk" | "plugin:web" | "edge" | "system";
+  synced?: boolean;
+  syncedSource?: string;
+  syncedAt?: string;
+  createdBy?: string | null;
+  updatedBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt?: string | null;
+}
+
+/**
+ * One entry of the attribute sync request payload.
+ */
+export interface SyncAttributeInput {
+  key: string;
+  type: AttributeType;
+  format?: AttributeFormat;
+  values?: AttributeValue[];
+  range?: [number, number];
+  label?: string;
+  description?: string;
+  identifier?: boolean;
+  logging?: AttributeLogging;
+  breakdown?: boolean;
+  encoding?: AttributeEncoding;
+}
+
+/**
+ * Attribute sync request payload (POST /v1/projects/:projectId/attributes/sync)
+ */
+export interface AttributeSyncRequest {
+  attributes: SyncAttributeInput[];
+  source?: string;
+  /** Archive synced attributes missing from the file (referenced ones are skipped, not archived). */
+  prune?: boolean;
+}
+
+/**
+ * Attribute sync response
+ */
+export interface AttributeSyncResponse {
+  created: Array<{ key: string; id: string }>;
+  updated: Array<{ key: string; id: string }>;
+  unchanged: Array<{ key: string; id: string }>;
+  remoteOnly: Array<{ key: string; id: string }>;
+  /** Archived by this call (only when `prune: true`) */
+  pruned: Array<{ key: string; id: string }>;
+  /** Prune candidates left in place because policies still reference them */
+  skipped: Array<{ key: string; id: string }>;
+  summary: {
+    totalInConfig: number;
+    created: number;
+    updated: number;
+    unchanged: number;
+    remoteOnly: number;
+    pruned: number;
+    skipped: number;
+  };
+  warnings?: string[];
 }
 
 // =============================================================================

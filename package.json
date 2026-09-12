@@ -15,6 +15,7 @@
     "build": "bun build ./src/index.ts --outdir ./dist --target node",
     "dev": "bun run src/index.ts",
     "typecheck": "tsc --noEmit",
+    "test": "bun test",
     "release": "changeset publish"
   },
   "dependencies": {

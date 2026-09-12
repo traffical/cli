@@ -12,17 +12,26 @@ import type {
   ConfigPropertyField,
   ConfigPropertyGroup,
   EventPropertySchema,
+  ApiAttributeDefinition,
 } from "../types.ts";
 import { compilePropertySchema } from "../config.ts";
 import { toPascalCase, generateInterface, schemaFieldToTS } from "./typescript.ts";
+import { generateContextTypes } from "./context.ts";
 import type { CodegenLanguage, CodegenResult } from "./types.ts";
 
 export { toPascalCase } from "./typescript.ts";
+export { generateContextTypes } from "./context.ts";
 export type { CodegenLanguage, CodegenOptions, CodegenResult } from "./types.ts";
 
 export interface GenerateEventTypesOptions {
   language: CodegenLanguage;
   configPath: string;
+  /**
+   * Active attribute definitions from the control plane (system rows
+   * included). Omit to leave the context types out entirely — e.g. when the
+   * server predates the attributes endpoint.
+   */
+  attributes?: ApiAttributeDefinition[];
 }
 
 /**
@@ -53,18 +62,19 @@ export function resolveEventSchemaLocally(
  */
 export function generateEventTypesContent(
   config: TrafficalConfig,
-  options: { language: CodegenLanguage; configPath: string }
+  options: GenerateEventTypesOptions
 ): CodegenResult {
   if (options.language !== "typescript") {
     throw new Error(`Language "${options.language}" is not yet supported. Supported: typescript`);
   }
 
-  return generateTypeScript(config, options.configPath);
+  return generateTypeScript(config, options.configPath, options.attributes);
 }
 
 function generateTypeScript(
   config: TrafficalConfig,
-  configPath: string
+  configPath: string,
+  attributes?: ApiAttributeDefinition[]
 ): CodegenResult {
   const paramKeys = Object.keys(config.parameters);
   const eventEntries = Object.entries(config.events || {});
@@ -174,6 +184,11 @@ function generateTypeScript(
   content += `  properties: TrafficalEventProperties[E],\n`;
   content += `  options?: { decisionId?: string; unitKey?: string }\n`;
   content += `) => void;\n`;
+
+  // Context attribute types (registry-driven; absent when not fetched)
+  if (attributes) {
+    content += "\n" + generateContextTypes(attributes);
+  }
 
   return {
     content,

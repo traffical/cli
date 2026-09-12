@@ -349,9 +349,9 @@ program
 // Push command
 program
   .command("push")
-  .description("Push local config parameters, events, and metrics to Traffical")
+  .description("Push local config attributes, parameters, events, and metrics to Traffical")
   .option("-n, --dry-run", "Validate and show changes without pushing")
-  .option("--prune", "Archive orphaned synced parameters that are no longer in the config file")
+  .option("--prune", "Archive orphaned synced parameters and attributes that are no longer in the config file (attributes still referenced by policies are skipped)")
   .option("--metrics-file <path>", "Path to metrics.yaml (default: auto-detect .traffical/metrics.yaml)")
   .action(async (options) => {
     const globalOpts = program.opts();
@@ -376,7 +376,7 @@ program
   .description("Sync config with Traffical (local wins: pushes your changes, adds new remote params)")
   .option("--all", "Sync all config files in the repository")
   .option("-n, --dry-run", "Validate and show changes without syncing")
-  .option("--prune", "Archive orphaned synced parameters that are no longer in the config file")
+  .option("--prune", "Archive orphaned synced parameters and attributes that are no longer in the config file (attributes still referenced by policies are skipped)")
   .action(async (options) => {
     const globalOpts = program.opts();
     try {
@@ -478,7 +478,7 @@ importCmd
 // Generate Types command
 program
   .command("generate-types")
-  .description("Generate typed definitions from traffical.yaml config")
+  .description("Generate typed definitions from traffical.yaml config (+ TrafficalContext from the attribute registry when linked)")
   .option("-o, --output <path>", "Output file path (default: .traffical/traffical.generated.ts)")
   .option("-l, --language <lang>", "Output language (default: typescript)", "typescript")
   .action(async (options) => {
@@ -489,6 +489,8 @@ program
         output: options.output,
         language: options.language,
         format: globalOpts.format,
+        profile: globalOpts.profile,
+        apiBase: globalOpts.apiBase,
       });
     } catch (error) {
       handleError(error, globalOpts.format);

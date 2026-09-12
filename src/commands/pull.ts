@@ -1,8 +1,8 @@
 /**
  * pull command
  *
- * Pull synced parameters from Traffical to local config file.
- * Updates config.yaml with remote synced parameters.
+ * Pull synced parameters, events, property groups and attributes from Traffical
+ * to the local config file. Updates config.yaml with the remote definitions.
  * Supports both human-readable and JSON output.
  */
 
@@ -15,11 +15,12 @@ import {
   apiParamToConfig,
   apiEventToConfig,
   apiPropertyGroupToConfig,
+  apiAttributeToConfig,
   TRAFFICAL_DIR,
 } from "../lib/config.ts";
 import { ApiClient, ValidationError, NotLinkedError } from "../lib/api.ts";
 import { parseFormatOption } from "../lib/output.ts";
-import type { ConfigParameter, ConfigEvent, ConfigPropertyGroup } from "../lib/types.ts";
+import type { ConfigParameter, ConfigEvent, ConfigPropertyGroup, ConfigAttribute } from "../lib/types.ts";
 
 export interface PullOptions {
   profile?: string;
@@ -51,6 +52,13 @@ export interface PullResult {
     total: number;
   };
   propertyGroups: {
+    added: string[];
+    updated: string[];
+    unchanged: string[];
+    localOnly: string[];
+    total: number;
+  };
+  attributes: {
     added: string[];
     updated: string[];
     unchanged: string[];
@@ -248,6 +256,47 @@ export async function pullConfig(options: {
   config.propertyGroups = Object.keys(newPropertyGroups).length > 0
     ? newPropertyGroups : undefined;
 
+  // ==========================================================================
+  // Attributes Pull
+  // ==========================================================================
+
+  // System rows ($-prefixed, server-managed) and archived rows never land in
+  // the file; the generated types keep the system rows (see --include-types).
+  const activeAttributes = (await client.listAttributes(projectId)).filter((a) => !a.archivedAt);
+  const attributeDefs = activeAttributes.filter((a) => a.managedBy !== "system");
+
+  const attrsAdded: string[] = [];
+  const attrsUpdated: string[] = [];
+  const attrsUnchanged: string[] = [];
+
+  const newAttributes: Record<string, ConfigAttribute> = {};
+
+  for (const attr of attributeDefs) {
+    const { key, config: attrConfig } = apiAttributeToConfig(attr);
+    const existing = config.attributes?.[key];
+
+    if (!existing) {
+      attrsAdded.push(key);
+    } else if (JSON.stringify(existing) !== JSON.stringify(attrConfig)) {
+      attrsUpdated.push(key);
+    } else {
+      attrsUnchanged.push(key);
+    }
+
+    newAttributes[key] = attrConfig;
+  }
+
+  // Preserve local-only attributes (not yet pushed)
+  const attrsLocalOnly: string[] = [];
+  for (const [key, attr] of Object.entries(config.attributes || {})) {
+    if (!newAttributes[key]) {
+      newAttributes[key] = attr;
+      attrsLocalOnly.push(key);
+    }
+  }
+
+  config.attributes = Object.keys(newAttributes).length > 0 ? newAttributes : undefined;
+
   await writeConfigFile(configPath, config);
 
   // Optionally generate types after pull
@@ -257,6 +306,9 @@ export async function pullConfig(options: {
     const typeResult = await generateTypes({
       configPath,
       output: options.typesOutput,
+      profile: options.profile,
+      apiBase: options.apiBase,
+      attributes: activeAttributes,
     });
     typesGenerated = typeResult.outputPath;
   }
@@ -284,6 +336,13 @@ export async function pullConfig(options: {
       unchanged: groupsUnchanged,
       localOnly: groupsLocalOnly,
       total: propertyGroupDefs.length,
+    },
+    attributes: {
+      added: attrsAdded,
+      updated: attrsUpdated,
+      unchanged: attrsUnchanged,
+      localOnly: attrsLocalOnly,
+      total: attributeDefs.length,
     },
     typesGenerated,
   };
@@ -404,16 +463,52 @@ function printPullHuman(result: PullResult): void {
     console.log();
   }
 
+  // Attributes section
+  const { attributes: attrs } = result;
+  const hasAttrActivity =
+    attrs.added.length > 0 ||
+    attrs.updated.length > 0 ||
+    attrs.localOnly.length > 0;
+
+  if (hasAttrActivity || attrs.total > 0) {
+    console.log(chalk.bold("Remote → Local (Attributes):"));
+
+    if (attrs.added.length > 0) {
+      console.log(chalk.green(`  + ${attrs.added.length} added`));
+      attrs.added.forEach((key) => console.log(chalk.dim(`    ${key}`)));
+    }
+
+    if (attrs.updated.length > 0) {
+      console.log(chalk.yellow(`  ~ ${attrs.updated.length} updated`));
+      attrs.updated.forEach((key) => console.log(chalk.dim(`    ${key}`)));
+    }
+
+    if (attrs.unchanged.length > 0) {
+      console.log(chalk.dim(`  = ${attrs.unchanged.length} unchanged`));
+    }
+
+    if (attrs.localOnly.length > 0) {
+      console.log(chalk.cyan(`  ? ${attrs.localOnly.length} local-only (not yet pushed)`));
+      attrs.localOnly.forEach((key) => console.log(chalk.dim(`    ${key}`)));
+    }
+
+    console.log();
+  }
+
   console.log(chalk.green(`✓ Updated config.yaml`));
 
   if (result.typesGenerated) {
     console.log(chalk.green(`✓ Generated types: ${result.typesGenerated}`));
   }
 
-  const hasLocalOnly = result.localOnly.length > 0 || events.localOnly.length > 0 || groups.localOnly.length > 0;
+  const hasLocalOnly =
+    result.localOnly.length > 0 ||
+    events.localOnly.length > 0 ||
+    groups.localOnly.length > 0 ||
+    attrs.localOnly.length > 0;
   if (hasLocalOnly) {
     console.log();
-    console.log(chalk.dim("Run 'traffical push' to sync local-only parameters/events/property groups."));
+    console.log(chalk.dim("Run 'traffical push' to sync local-only parameters/events/property groups/attributes."));
   }
 }
 

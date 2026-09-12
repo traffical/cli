@@ -23,6 +23,9 @@ import type {
   EventPropertySchema,
   EventPropertySchemaField,
   ProjectLink,
+  ConfigAttribute,
+  AttributeValue,
+  SyncAttributeInput,
 } from "./types.ts";
 
 // Import the JSON Schema
@@ -93,6 +96,8 @@ export function validateConfig(config: unknown): ValidationResult {
     if (err.keyword === "then") return false;
     // Skip oneOf errors - we'll provide cleaner messages for these
     if (err.keyword === "oneOf") return false;
+    // Skip the inner error of a propertyNames check - the propertyNames error names the key
+    if (err.propertyName !== undefined && err.keyword !== "propertyNames") return false;
     return true;
   });
   
@@ -149,6 +154,12 @@ export function validateConfig(config: unknown): ValidationResult {
       message = `unknown property '${err.params.additionalProperty}'`;
     } else if (err.keyword === "pattern") {
       message = `invalid format (${message})`;
+    } else if (err.keyword === "propertyNames" && err.params?.propertyName !== undefined) {
+      const name = String(err.params.propertyName);
+      path = path === "(root)" ? name : `${path}.${name}`;
+      message = name.startsWith("$")
+        ? "invalid key: $-prefixed attributes are system-managed and cannot be declared in config"
+        : "invalid key (must match ^[A-Za-z_][A-Za-z0-9_.]*$)";
     } else if (err.keyword === "type" && err.params?.type) {
       // Improve type mismatch messages
       const expectedType = err.params.type as string;
@@ -614,6 +625,24 @@ function generateExampleSection(): string {
 #         dimension: true
 #
 # Learn more: https://docs.traffical.io/tools/config-file#property-groups
+#
+# ──────────────────────────────────────────────────────────────────────────────
+# Example context attributes (typed registry for targeting conditions):
+#
+#   device_type:
+#     type: string
+#     format: enum
+#     values:                  # list of strings, or map value → description
+#       mobile: Phone or small tablet
+#       desktop: Desktop or laptop
+#     description: Client form factor
+#     logging: always
+#
+#   cart_value: { type: number, range: [0, 100000] }
+#   user_id:    { type: string, identifier: true, logging: never }
+#
+# Supported types: string, number, boolean, timestamp
+# Learn more: https://docs.traffical.io/tools/config-file#attributes
 # ──────────────────────────────────────────────────────────────────────────────
 `;
 }
@@ -664,8 +693,16 @@ function buildGroupedConfig(config: TrafficalConfig): TrafficalConfig {
     }
   }
 
+  if (config.attributes) {
+    grouped.attributes = config.attributes;
+  }
+
   if (config.events) {
     grouped.events = config.events;
+  }
+
+  if (config.propertyGroups) {
+    grouped.propertyGroups = config.propertyGroups;
   }
 
   return grouped;
@@ -715,7 +752,7 @@ export async function writeConfigFile(
   if (outputConfig.events && Object.keys(outputConfig.events).length === 0) {
     content = content.replace(
       "events: {}\n",
-      "# Track user actions for experiment analysis (see examples below)\nevents: {}\n"
+      "# Track user actions for measurement analysis (see examples below)\nevents: {}\n"
     );
   }
 
@@ -984,6 +1021,112 @@ export function apiPropertyGroupToConfig(group: {
   }
 
   return config;
+}
+
+/**
+ * Normalise the YAML `values` shorthand (list of strings or map value → description)
+ * into the API's `[{ value, description? }]` list.
+ */
+export function normalizeAttributeValues(
+  values: ConfigAttribute["values"]
+): AttributeValue[] | undefined {
+  if (values === undefined) return undefined;
+  if (Array.isArray(values)) {
+    return values.map((value) => ({ value: String(value) }));
+  }
+  return Object.entries(values).map(([value, description]) =>
+    description ? { value, description } : { value }
+  );
+}
+
+/**
+ * Convert config attribute to API sync format.
+ * Undefined fields are omitted so the server applies its defaults.
+ */
+export function configAttributeToApi(key: string, attr: ConfigAttribute): SyncAttributeInput {
+  const result: SyncAttributeInput = { key, type: attr.type };
+
+  if (attr.format) result.format = attr.format;
+  const values = normalizeAttributeValues(attr.values);
+  if (values) result.values = values;
+  if (attr.range) result.range = [attr.range[0], attr.range[1]];
+  if (attr.label) result.label = attr.label;
+  if (attr.description) result.description = attr.description;
+  if (attr.identifier !== undefined) result.identifier = attr.identifier;
+  if (attr.logging) result.logging = attr.logging;
+  if (attr.breakdown !== undefined) result.breakdown = attr.breakdown;
+  if (attr.encoding && Object.keys(attr.encoding).length > 0) {
+    const encoding: NonNullable<SyncAttributeInput["encoding"]> = {};
+    if (attr.encoding.binning) encoding.binning = attr.encoding.binning;
+    if (attr.encoding.topK !== undefined) encoding.topK = attr.encoding.topK;
+    if (Object.keys(encoding).length > 0) result.encoding = encoding;
+  }
+
+  return result;
+}
+
+/**
+ * Convert API attribute definition to config format (inverse of configAttributeToApi).
+ * `values` is written as a plain list when no entry carries a description,
+ * and as a value → description map otherwise. Server defaults (identifier false,
+ * logging allowed, breakdown false) are left implicit to keep the YAML short.
+ */
+export function apiAttributeToConfig(attr: {
+  key: string;
+  type: ConfigAttribute["type"];
+  format?: ConfigAttribute["format"];
+  values?: AttributeValue[];
+  range?: [number, number];
+  label?: string;
+  description?: string;
+  identifier?: boolean;
+  logging?: ConfigAttribute["logging"];
+  breakdown?: boolean;
+  encoding?: ConfigAttribute["encoding"];
+}): { key: string; config: ConfigAttribute } {
+  const config: ConfigAttribute = { type: attr.type };
+
+  if (attr.format) config.format = attr.format;
+
+  if (attr.values && attr.values.length > 0) {
+    const hasDescriptions = attr.values.some((v) => v.description);
+    if (hasDescriptions) {
+      const map: Record<string, string> = {};
+      for (const v of attr.values) map[v.value] = v.description ?? "";
+      config.values = map;
+    } else {
+      config.values = attr.values.map((v) => v.value);
+    }
+  }
+
+  if (attr.range) config.range = [attr.range[0], attr.range[1]];
+  if (attr.label) config.label = attr.label;
+  if (attr.description) config.description = attr.description;
+  if (attr.identifier) config.identifier = true;
+  if (attr.logging && attr.logging !== "allowed") config.logging = attr.logging;
+  if (attr.breakdown) config.breakdown = true;
+  if (attr.encoding) {
+    const encoding: NonNullable<ConfigAttribute["encoding"]> = {};
+    if (attr.encoding.binning) encoding.binning = attr.encoding.binning;
+    if (attr.encoding.topK !== undefined) encoding.topK = attr.encoding.topK;
+    if (Object.keys(encoding).length > 0) config.encoding = encoding;
+  }
+
+  return { key: attr.key, config };
+}
+
+/**
+ * Compare a local attribute against its remote definition on the fields
+ * the sync endpoint writes. Used by dry-run diffs and `status`.
+ */
+export function attributeDiffers(
+  local: SyncAttributeInput,
+  remote: Parameters<typeof apiAttributeToConfig>[0]
+): boolean {
+  const normalizedRemote = configAttributeToApi(remote.key, apiAttributeToConfig(remote).config);
+  // Re-normalise the local side through the same path so implicit defaults compare equal.
+  const normalizedLocal = configAttributeToApi(local.key, apiAttributeToConfig(local).config);
+  return JSON.stringify(normalizedLocal) !== JSON.stringify(normalizedRemote);
 }
 
 // =============================================================================

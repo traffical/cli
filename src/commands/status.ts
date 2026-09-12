@@ -10,7 +10,7 @@ import { findConfigFile, readConfigFile, resolveProject, TRAFFICAL_DIR } from ".
 import { ApiClient, EXIT_DRIFT_DETECTED, EXIT_SUCCESS, NotLinkedError } from "../lib/api.ts";
 import { parseFormatOption, type OutputFormat } from "../lib/output.ts";
 import { findMetricsFile, readMetricsFile } from "../lib/metrics-config.ts";
-import type { ApiParameter, ApiEventDefinition, ApiMetricDefinition } from "../lib/types.ts";
+import type { ApiParameter, ApiEventDefinition, ApiMetricDefinition, ApiAttributeDefinition } from "../lib/types.ts";
 
 export interface StatusOptions {
   profile?: string;
@@ -41,6 +41,14 @@ export interface MetricInfo {
   metricType: string;
   synced: boolean;
   certified: boolean;
+}
+
+export interface AttributeInfo {
+  key: string;
+  type: string;
+  format?: string;
+  createdAt?: string;
+  synced: boolean;
 }
 
 export interface StatusResult {
@@ -74,6 +82,12 @@ export interface StatusResult {
     dashboardOnly: MetricInfo[];
     localOnly: MetricInfo[];
     remoteOnly: MetricInfo[];
+  };
+  // Context attributes (user-managed rows only; $-system rows are never listed)
+  attributes: {
+    synced: AttributeInfo[];
+    dashboardOnly: AttributeInfo[];
+    localOnly: AttributeInfo[];
   };
   hasDrift: boolean;
 }
@@ -236,8 +250,41 @@ export async function getStatus(options: {
     .filter((m) => m.synced && !configMetricNames.has(m.name))
     .map(toMetricInfo);
 
-  // Drift exists if there are local-only params, events, or metrics
-  const hasDrift = localOnlyParamKeys.length > 0 || localOnlyEventNames.length > 0 || localOnlyMetrics.length > 0;
+  // ==========================================================================
+  // Attributes
+  // ==========================================================================
+  const allAttributes = (await client.listAttributes(projectId)).filter(
+    (a) => a.managedBy !== "system" && !a.archivedAt
+  );
+
+  const toAttributeInfo = (a: ApiAttributeDefinition): AttributeInfo => ({
+    key: a.key,
+    type: a.type,
+    format: a.format,
+    createdAt: a.createdAt,
+    synced: a.synced ?? false,
+  });
+
+  const syncedAttributes = allAttributes.filter((a) => a.synced).map(toAttributeInfo);
+  const dashboardOnlyAttributes = allAttributes.filter((a) => !a.synced).map(toAttributeInfo);
+
+  const configAttributes = config.attributes ?? {};
+  const remoteAttrKeys = new Set(allAttributes.map((a) => a.key));
+  const localOnlyAttributes = Object.keys(configAttributes)
+    .filter((key) => !remoteAttrKeys.has(key))
+    .map((key) => ({
+      key,
+      type: configAttributes[key]!.type,
+      format: configAttributes[key]!.format,
+      synced: false,
+    }) as AttributeInfo);
+
+  // Drift exists if there are local-only params, events, metrics, or attributes
+  const hasDrift =
+    localOnlyParamKeys.length > 0 ||
+    localOnlyEventNames.length > 0 ||
+    localOnlyMetrics.length > 0 ||
+    localOnlyAttributes.length > 0;
 
   return {
     project: {
@@ -267,6 +314,11 @@ export async function getStatus(options: {
       dashboardOnly: dashboardOnlyMetrics,
       localOnly: localOnlyMetrics,
       remoteOnly: remoteOnlyMetrics,
+    },
+    attributes: {
+      synced: syncedAttributes,
+      dashboardOnly: dashboardOnlyAttributes,
+      localOnly: localOnlyAttributes,
     },
     hasDrift,
   };
@@ -434,6 +486,48 @@ function printStatusHuman(result: StatusResult): void {
   }
 
   // ==========================================================================
+  // Attributes
+  // ==========================================================================
+  const totalAttributes = result.attributes.synced.length + result.attributes.dashboardOnly.length +
+                          result.attributes.localOnly.length;
+
+  if (totalAttributes > 0) {
+    console.log(chalk.cyan.bold("Attributes"));
+    console.log();
+
+    const attrLabel = (a: AttributeInfo) => chalk.gray(` (${a.format ? `${a.type}/${a.format}` : a.type})`);
+
+    console.log(chalk.bold(`  Synced: ${result.attributes.synced.length} attribute${result.attributes.synced.length !== 1 ? "s" : ""}`));
+    if (result.attributes.synced.length > 0) {
+      result.attributes.synced.forEach((a) => {
+        console.log(chalk.dim(`    ${a.key}`) + attrLabel(a));
+      });
+    }
+    console.log();
+
+    console.log(
+      chalk.bold(`  Dashboard-only: ${result.attributes.dashboardOnly.length} attribute${result.attributes.dashboardOnly.length !== 1 ? "s" : ""}`)
+    );
+    if (result.attributes.dashboardOnly.length > 0) {
+      result.attributes.dashboardOnly.forEach((a) => {
+        const age = a.createdAt ? getTimeAgo(new Date(a.createdAt)) : "";
+        console.log(chalk.dim(`    ${a.key}`) + attrLabel(a) + (age ? chalk.gray(` created ${age}`) : ""));
+      });
+    }
+    console.log();
+
+    if (result.attributes.localOnly.length > 0) {
+      console.log(
+        chalk.yellow(`  Local-only: ${result.attributes.localOnly.length} attribute${result.attributes.localOnly.length !== 1 ? "s" : ""} (not yet pushed)`)
+      );
+      result.attributes.localOnly.forEach((a) => {
+        console.log(chalk.dim(`    ${a.key}`) + attrLabel(a));
+      });
+      console.log();
+    }
+  }
+
+  // ==========================================================================
   // Suggestions
   // ==========================================================================
   if (result.dashboardOnly.length > 0) {
@@ -449,7 +543,11 @@ function printStatusHuman(result: StatusResult): void {
     console.log();
   }
   
-  const hasLocalOnlyItems = result.localOnly.length > 0 || result.events.localOnly.length > 0 || result.metrics.localOnly.length > 0;
+  const hasLocalOnlyItems =
+    result.localOnly.length > 0 ||
+    result.events.localOnly.length > 0 ||
+    result.metrics.localOnly.length > 0 ||
+    result.attributes.localOnly.length > 0;
   if (hasLocalOnlyItems) {
     console.log(chalk.dim(`Run 'traffical push' to sync local-only items.`));
   }

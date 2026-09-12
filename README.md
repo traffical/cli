@@ -58,12 +58,12 @@ preserved unless `--force` is passed.
 | `unlink` | Remove the project link |
 | `org list \| use <key>` | List orgs you belong to / set the default org |
 | `project list \| create <name> \| use <key>` | Manage projects in the active org |
-| `push` | Push local config to Traffical (validates first) |
-| `pull` | Pull synced parameters from Traffical to local config |
+| `push` | Push local config (attributes, parameters, property groups, events) to Traffical (validates first) |
+| `pull` | Pull synced parameters, events, property groups and attributes from Traffical to local config |
 | `sync` | Bidirectional sync (local wins policy) |
 | `status` | Show current sync status |
 | `import <key>` | Import dashboard parameters (supports wildcards: `ui.*`, `*.enabled`) |
-| `generate-types` | Generate TypeScript types from `config.yaml` |
+| `generate-types` | Generate TypeScript types from `config.yaml` (+ `TrafficalContext` from the attribute registry) |
 
 ### `init` Options
 
@@ -81,15 +81,17 @@ The `init` command auto-detects your framework, scaffolds events, generates fram
 | Flag | Description |
 |------|-------------|
 | `--dry-run` | Validate and preview changes without applying |
-| `--prune` | Archive orphaned synced parameters that no longer exist in your local config |
+| `--prune` | Archive orphaned synced parameters and attributes that no longer exist in your local config. Attributes still referenced by policy conditions are skipped (reported, not archived). |
+
+Push order is attributes → parameters → property groups → events → metrics, so policies validated later in the run already see the attribute registry.
 
 ## Sync Behavior
 
 The CLI uses a **"local wins"** policy for the `sync` command:
 
 1. **Validates** your local config first (catches errors before any network calls)
-2. **Pushes** your local parameters and events to Traffical (your edits take precedence)
-3. **Adds** new parameters and events from Traffical that you don't have locally
+2. **Pushes** your local attributes, parameters, property groups and events to Traffical (your edits take precedence)
+3. **Adds** new attributes, parameters and events from Traffical that you don't have locally
 4. **Warns** about conflicts (but your local version is used)
 
 This matches the Git workflow where your local file is the source of truth. If you want to overwrite local changes with remote values, use `traffical pull` explicitly.
@@ -263,6 +265,83 @@ events:
 | `unit` | No | Unit for the value (e.g., `USD`, `items`, `percent`) |
 | `description` | No | Human-readable description of what the event tracks |
 
+### Attributes
+
+Attributes are the typed registry of context keys your SDKs pass on each decision (`device_type`, `plan`, `cart_value`, …). Registering them lets the dashboard offer typed condition editors, validate policy targeting against the declared type, and control what the SDK may log.
+
+```yaml
+# .traffical/config.yaml
+attributes:
+  device_type:
+    type: string
+    format: enum
+    values:                      # list of strings OR map value → description
+      mobile: Phone or small tablet
+      desktop: Desktop or laptop
+    description: Client form factor
+    logging: always
+
+  plan:
+    type: string
+    format: enum
+    values: [free, pro, enterprise]
+
+  cart_value: { type: number, range: [0, 100000] }
+  app_version: { type: string, format: semver }
+  user_id:    { type: string, identifier: true, logging: never }
+```
+
+#### Attribute Properties
+
+| Property | Required | Description |
+|----------|----------|-------------|
+| `type` | Yes | `string`, `number`, `boolean`, or `timestamp` (epoch milliseconds in context) |
+| `format` | No | Narrows a string: `enum` (requires `values`), `semver`, `country`, `url` |
+| `values` | No | Allowed enum values — a list of strings, or a map of value → description |
+| `range` | No | `[min, max]` bounds for number attributes |
+| `label` | No | Display name in the dashboard |
+| `description` | No | Human-readable description |
+| `identifier` | No | Marks a key that can serve as a unit or entity key (defaults `logging` to `never`) |
+| `logging` | No | `never`, `allowed` (default), or `always` — whether the SDK logs the value with decisions |
+| `breakdown` | No | Offer the attribute as a results breakdown dimension |
+| `encoding` | No | Training hints: `{ binning: none \| quantile, topK: <int> }` |
+
+Keys must match `^[A-Za-z_][A-Za-z0-9_.]*$`. System attributes (`$unit_key` and other `$`-prefixed keys) are managed by Traffical: they are never written by `pull` and are rejected by `push`.
+
+### Generated types
+
+`traffical generate-types` (or `traffical pull --include-types`) writes `.traffical/traffical.generated.ts` with parameter keys, event names and event property interfaces from `config.yaml`. When the repo is linked, it also reads the project's attribute registry and emits a typed context:
+
+```ts
+export interface TrafficalContext {
+  /** identifier — may serve as a unit or entity key */
+  "$unit_key"?: string;
+  cart_value?: number;
+  /** Client form factor */
+  device_type?: "mobile" | "desktop";
+  /** timestamp — epoch milliseconds */
+  signed_up_at?: number;
+  [key: string]: unknown;
+}
+
+export type TrafficalAttributeKey = "$unit_key" | "cart_value" | "device_type" | "signed_up_at";
+```
+
+- One optional property per active attribute, system attributes (`$unit_key`, …) included; `$`-prefixed and dotted keys are quoted.
+- `string` → `string`, `enum` → a union of its values, `number` → `number`, `boolean` → `boolean`, `timestamp` → `number` (epoch milliseconds).
+- The trailing index signature keeps unregistered keys compiling; `TrafficalAttributeKey` is the union of registered keys only.
+
+Use it at the call site to catch typos and wrong enum values without banning ad-hoc keys:
+
+```ts
+import type { TrafficalContext } from "./.traffical/traffical.generated";
+
+const context = { device_type: "mobile", cart_value: 42 };
+const decision = client.decide(context satisfies TrafficalContext, defaults);
+```
+
+If the server does not expose the attribute registry yet (HTTP 403/404), or the repo is not linked or logged in, the context types are left out and the summary prints a note instead of failing.
+
 ## Validation
 
 The CLI validates your config against a JSON Schema before pushing:
@@ -271,6 +350,7 @@ The CLI validates your config against a JSON Schema before pushing:
 - Type consistency (e.g., `type: boolean` must have a boolean `default`)
 - ID format (`proj_*` and `org_*` prefixes)
 - Event definitions (valid `valueType` values)
+- Attribute definitions (valid `type`/`format`/`logging`, no `$`-prefixed keys)
 
 ```bash
 # Validation happens automatically on push/sync

@@ -22,6 +22,9 @@ import type {
   MetricSyncRequest,
   MetricSyncResponse,
   BulkParameterResponse,
+  ApiAttributeDefinition,
+  AttributeSyncRequest,
+  AttributeSyncResponse,
 } from "./types.ts";
 
 /**
@@ -62,6 +65,9 @@ export class CliError extends Error {
     super(message);
     this.name = "CliError";
   }
+
+  /** HTTP status of the failed request, when the error came from an API response. */
+  status?: number;
 }
 
 /**
@@ -202,14 +208,17 @@ export class ApiClient {
       const message = error.error?.message || `API request failed: ${response.status} ${response.statusText}`;
 
       // Classify error by status code
+      let error_: CliError;
       if (response.status === 401 || response.status === 403) {
-        throw new AuthError(message);
+        error_ = new AuthError(message);
       } else if (response.status >= 500) {
-        throw new NetworkError(message);
+        error_ = new NetworkError(message);
       } else {
         // 4xx errors (except auth) are typically validation errors
-        throw new ValidationError(message);
+        error_ = new ValidationError(message);
       }
+      error_.status = response.status;
+      throw error_;
     }
 
     return response.json() as Promise<T>;
@@ -437,6 +446,40 @@ export class ApiClient {
   ): Promise<PropertyGroupSyncResponse> {
     return this.request<PropertyGroupSyncResponse>(
       "POST", `/v1/projects/${projectId}/property-groups/sync`, request
+    );
+  }
+
+  // ==========================================================================
+  // Context Attributes
+  // ==========================================================================
+
+  /**
+   * List attribute definitions for a project.
+   * Archived rows are excluded unless `includeArchived` is set.
+   */
+  async listAttributes(
+    projectId: string,
+    options?: { includeArchived?: boolean }
+  ): Promise<ApiAttributeDefinition[]> {
+    let path = `/v1/projects/${projectId}/attributes?limit=1000`;
+    if (options?.includeArchived) {
+      path += "&includeArchived=true";
+    }
+    const result = await this.request<{ data: ApiAttributeDefinition[] }>("GET", path);
+    return result.data;
+  }
+
+  /**
+   * Sync attribute definitions from a config file.
+   * `prune: true` archives synced attributes missing from the request;
+   * attributes still referenced by policies are reported under `skipped`.
+   */
+  async syncAttributes(
+    projectId: string,
+    request: AttributeSyncRequest
+  ): Promise<AttributeSyncResponse> {
+    return this.request<AttributeSyncResponse>(
+      "POST", `/v1/projects/${projectId}/attributes/sync`, request
     );
   }
 

@@ -25,13 +25,16 @@ import {
   apiEventToConfig,
   configPropertyGroupToApi,
   apiPropertyGroupToConfig,
+  configAttributeToApi,
+  apiAttributeToConfig,
+  attributeDiffers,
   TRAFFICAL_DIR,
   CONFIG_FILENAME,
   LEGACY_CONFIG_FILENAME,
 } from "../lib/config.ts";
 import { ApiClient, ValidationError, NotLinkedError } from "../lib/api.ts";
 import { parseFormatOption } from "../lib/output.ts";
-import type { ConfigParameter, ConfigEvent, ConfigPropertyGroup } from "../lib/types.ts";
+import type { ConfigParameter, ConfigEvent, ConfigPropertyGroup, ConfigAttribute } from "../lib/types.ts";
 
 const execAsync = promisify(exec);
 
@@ -99,6 +102,19 @@ export interface SyncResult {
       added: string[];
     };
   };
+  attributes: {
+    push: {
+      created: string[];
+      updated: string[];
+      unchanged: string[];
+    };
+    pull: {
+      added: string[];
+    };
+    pruned: string[];
+    /** Prune candidates left in place because policies still reference them */
+    skipped: string[];
+  };
 }
 
 /**
@@ -135,6 +151,81 @@ export async function syncConfig(options: {
 
   // Get project info
   const project = await client.getProject(projectId);
+
+  let configChanged = false;
+
+  // ==========================================================================
+  // Attributes Sync (first — policies validated later in this run see the registry)
+  // ==========================================================================
+
+  // `undefined` = the file has no `attributes:` block; the sync call is skipped entirely.
+  const localAttrEntries = config.attributes ? Object.entries(config.attributes) : undefined;
+  const localAttributes = (localAttrEntries ?? []).map(([key, attr]) =>
+    configAttributeToApi(key, attr)
+  );
+
+  // System rows ($-prefixed) and archived rows are never synced or pulled.
+  const remoteAttributes = (await client.listAttributes(projectId)).filter(
+    (a) => a.managedBy !== "system" && !a.archivedAt
+  );
+  const remoteAttrByKey = new Map(remoteAttributes.map((a) => [a.key, a]));
+
+  const attrsWouldCreate: string[] = [];
+  const attrsWouldUpdate: string[] = [];
+  const attrsWouldUnchange: string[] = [];
+
+  for (const attr of localAttributes) {
+    const remote = remoteAttrByKey.get(attr.key);
+    if (!remote) {
+      attrsWouldCreate.push(attr.key);
+    } else if (attributeDiffers(attr, remote)) {
+      attrsWouldUpdate.push(attr.key);
+    } else {
+      attrsWouldUnchange.push(attr.key);
+    }
+  }
+
+  const localAttrKeySet = new Set(localAttributes.map((a) => a.key));
+  const orphanedAttributes = localAttrEntries
+    ? remoteAttributes.filter((a) => a.synced && !localAttrKeySet.has(a.key))
+    : [];
+  const attrsPruned: string[] = [];
+  const attrsSkipped: string[] = [];
+
+  if (!isDryRun && localAttrEntries) {
+    const attrSync = await client.syncAttributes(projectId, {
+      attributes: localAttributes,
+      source: "config.yaml",
+      ...(options.prune ? { prune: true } : {}),
+    });
+    attrsPruned.push(...(attrSync.pruned ?? []).map((a) => a.key));
+    attrsSkipped.push(...(attrSync.skipped ?? []).map((a) => a.key));
+  } else if (isDryRun && options.prune) {
+    attrsPruned.push(...orphanedAttributes.map((a) => a.key));
+  }
+
+  // Pull new remote attributes into local config (skipping ones just pruned)
+  const attrsNewFromRemote: string[] = [];
+  const prunedAttrSet = new Set(attrsPruned);
+  const mergedAttributes: Record<string, ConfigAttribute> = { ...(config.attributes ?? {}) };
+
+  for (const attr of remoteAttributes) {
+    if (!mergedAttributes[attr.key] && !prunedAttrSet.has(attr.key)) {
+      attrsNewFromRemote.push(attr.key);
+      if (!isDryRun) {
+        mergedAttributes[attr.key] = apiAttributeToConfig(attr).config;
+        configChanged = true;
+      }
+    }
+  }
+
+  if (Object.keys(mergedAttributes).length > 0) {
+    config.attributes = mergedAttributes;
+  }
+
+  // ==========================================================================
+  // Parameters Sync
+  // ==========================================================================
 
   // Get remote parameters for comparison
   const remoteParams = await client.listParameters(projectId, { synced: true });
@@ -177,7 +268,6 @@ export async function syncConfig(options: {
   // Analyze pull changes (remote → local)
   const newFromRemote: string[] = [];
   const conflicts: ConflictInfo[] = [];
-  let configChanged = false;
 
   for (const param of remoteParams) {
     const namespace = namespaceMap.get(param.namespaceId);
@@ -425,6 +515,18 @@ export async function syncConfig(options: {
         added: groupsNewFromRemote,
       },
     },
+    attributes: {
+      push: {
+        created: attrsWouldCreate,
+        updated: attrsWouldUpdate,
+        unchanged: attrsWouldUnchange,
+      },
+      pull: {
+        added: attrsNewFromRemote,
+      },
+      pruned: attrsPruned,
+      skipped: attrsSkipped,
+    },
   };
 }
 
@@ -550,6 +652,63 @@ function printSyncHuman(result: SyncResult): void {
         console.log(chalk.dim(`    local:  ${c.localValueType}`));
         console.log(chalk.dim(`    remote: ${c.remoteValueType}`));
       }
+      console.log();
+    }
+  }
+
+  // Attributes section
+  const { attributes: attrs } = result;
+  const hasAttrActivity =
+    attrs.push.created.length > 0 ||
+    attrs.push.updated.length > 0 ||
+    attrs.pull.added.length > 0 ||
+    attrs.pruned.length > 0 ||
+    attrs.skipped.length > 0;
+
+  if (hasAttrActivity) {
+    console.log(chalk.bold.cyan("Attributes:"));
+    console.log();
+
+    console.log(chalk.bold(`${result.dryRun ? "Would change " : ""}Local → Remote (Attributes):`));
+
+    if (attrs.push.created.length === 0 && attrs.push.updated.length === 0 && attrs.push.unchanged.length === 0) {
+      console.log(chalk.dim("  No local attributes to push"));
+    } else {
+      if (attrs.push.created.length > 0) {
+        console.log(chalk.green(`  + ${attrs.push.created.length} ${result.dryRun ? "would be " : ""}created`));
+        attrs.push.created.forEach((key) => console.log(chalk.dim(`    ${key}`)));
+      }
+      if (attrs.push.updated.length > 0) {
+        console.log(chalk.yellow(`  ~ ${attrs.push.updated.length} ${result.dryRun ? "would be " : ""}updated`));
+        attrs.push.updated.forEach((key) => console.log(chalk.dim(`    ${key}`)));
+      }
+      if (attrs.push.unchanged.length > 0) {
+        console.log(chalk.dim(`  = ${attrs.push.unchanged.length} ${result.dryRun ? "already in sync" : "unchanged"}`));
+      }
+    }
+
+    console.log();
+
+    console.log(chalk.bold(`${result.dryRun ? "Would change " : ""}Remote → Local (Attributes):`));
+
+    if (attrs.pull.added.length > 0) {
+      console.log(chalk.green(`  + ${attrs.pull.added.length} ${result.dryRun ? "would be " : ""}added to local config`));
+      attrs.pull.added.forEach((key) => console.log(chalk.dim(`    ${key}`)));
+    } else {
+      console.log(chalk.dim("  No new attributes from remote"));
+    }
+
+    console.log();
+
+    if (attrs.pruned.length > 0) {
+      console.log(chalk.green(`🗄 ${result.dryRun ? "Would archive" : "Archived"} ${attrs.pruned.length} orphaned synced attribute${attrs.pruned.length !== 1 ? "s" : ""}:`));
+      attrs.pruned.forEach((key) => console.log(chalk.dim(`  ${key}`)));
+      console.log();
+    }
+
+    if (attrs.skipped.length > 0) {
+      console.log(chalk.yellow(`⚠ ${attrs.skipped.length} attribute${attrs.skipped.length !== 1 ? "s" : ""} not archived (still referenced by policies):`));
+      attrs.skipped.forEach((key) => console.log(chalk.dim(`  ${key}`)));
       console.log();
     }
   }

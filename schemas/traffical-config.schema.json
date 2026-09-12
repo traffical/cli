@@ -71,6 +71,17 @@
       "additionalProperties": {
         "$ref": "#/definitions/propertyGroup"
       }
+    },
+    "attributes": {
+      "type": "object",
+      "description": "Context attribute registry synced from this config file. Keys are exact SDK context keys; $-prefixed system attributes are server-managed and cannot be declared here.",
+      "propertyNames": {
+        "pattern": "^[A-Za-z_][A-Za-z0-9_.]*$",
+        "maxLength": 128
+      },
+      "additionalProperties": {
+        "$ref": "#/definitions/attribute"
+      }
     }
   },
   "additionalProperties": false,
@@ -336,6 +347,86 @@
         }
       },
       "additionalProperties": false
+    },
+    "attribute": {
+      "type": "object",
+      "description": "Context attribute definition",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["string", "number", "boolean", "timestamp"],
+          "description": "Value type of the attribute in SDK context (timestamps are epoch milliseconds)"
+        },
+        "format": {
+          "type": "string",
+          "enum": ["enum", "semver", "country", "url"],
+          "description": "Narrows a string attribute; 'enum' requires values"
+        },
+        "values": {
+          "description": "Allowed values for enum attributes: a list of strings, or a map of value → description",
+          "oneOf": [
+            {
+              "type": "array",
+              "items": { "type": "string" },
+              "minItems": 1,
+              "maxItems": 500
+            },
+            {
+              "type": "object",
+              "minProperties": 1,
+              "maxProperties": 500,
+              "additionalProperties": { "type": "string" }
+            }
+          ]
+        },
+        "range": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "[min, max] bounds for number attributes"
+        },
+        "label": {
+          "type": "string",
+          "description": "Display name shown in the dashboard"
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of the attribute"
+        },
+        "identifier": {
+          "type": "boolean",
+          "description": "Whether this attribute may serve as a unit key or entity key"
+        },
+        "logging": {
+          "type": "string",
+          "enum": ["never", "allowed", "always"],
+          "description": "Whether the SDK may log this attribute with decisions (identifiers default to never)"
+        },
+        "breakdown": {
+          "type": "boolean",
+          "description": "Offer this attribute as a result breakdown dimension"
+        },
+        "encoding": {
+          "type": "object",
+          "description": "Training hints for contextual optimization",
+          "properties": {
+            "binning": {
+              "type": "string",
+              "enum": ["none", "quantile"],
+              "description": "How numeric values are bucketed"
+            },
+            "topK": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Keep only the K most frequent values"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     }
   },
   "examples": [
@@ -447,6 +538,37 @@
               "dimension": true
             }
           }
+        }
+      },
+      "attributes": {
+        "device_type": {
+          "type": "string",
+          "format": "enum",
+          "values": {
+            "mobile": "Phone or small tablet",
+            "desktop": "Desktop or laptop"
+          },
+          "description": "Client form factor",
+          "logging": "always"
+        },
+        "plan": {
+          "type": "string",
+          "format": "enum",
+          "values": ["free", "pro", "enterprise"]
+        },
+        "cart_value": {
+          "type": "number",
+          "range": [0, 100000],
+          "encoding": { "binning": "quantile" }
+        },
+        "app_version": {
+          "type": "string",
+          "format": "semver"
+        },
+        "user_id": {
+          "type": "string",
+          "identifier": true,
+          "logging": "never"
         }
       }
     }

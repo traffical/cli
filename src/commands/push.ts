@@ -1,8 +1,9 @@
 /**
  * push command
  *
- * Push local config file parameters and events to Traffical.
- * Creates new parameters/events, updates existing ones.
+ * Push local config file attributes, parameters, property groups and events to Traffical.
+ * Creates new entries, updates existing ones. Attributes go first so policies
+ * validated later in the same run see the registry.
  * Supports both human-readable and JSON output.
  */
 
@@ -14,6 +15,8 @@ import {
   configParamToApi,
   configEventToApi,
   configPropertyGroupToApi,
+  configAttributeToApi,
+  attributeDiffers,
   compilePropertySchema,
   TRAFFICAL_DIR,
 } from "../lib/config.ts";
@@ -49,6 +52,16 @@ export interface PushResult {
   remoteOnly: string[];
   pruned: string[];
   total: number;
+  attributes: {
+    created: string[];
+    updated: string[];
+    unchanged: string[];
+    remoteOnly: string[];
+    pruned: string[];
+    /** Prune candidates left in place because policies still reference them */
+    skipped: string[];
+    total: number;
+  };
   events: {
     created: string[];
     updated: string[];
@@ -117,6 +130,13 @@ export async function pushConfig(options: {
   // Get project info
   const project = await client.getProject(projectId);
 
+  // Convert config attributes to API format.
+  // `null` means the file has no `attributes:` block at all — the sync call is skipped
+  // entirely so projects that never declared attributes are not touched (or pruned).
+  const attributes = config.attributes
+    ? Object.entries(config.attributes).map(([key, attr]) => configAttributeToApi(key, attr))
+    : null;
+
   // Convert config parameters to API format
   const parameters = Object.entries(config.parameters).map(([key, param]) =>
     configParamToApi(key, param)
@@ -154,7 +174,23 @@ export async function pushConfig(options: {
     total: 0,
   };
 
-  if (parameters.length === 0 && events.length === 0 && propertyGroups.length === 0 && !metricsRequest) {
+  const emptyAttributes: PushResult["attributes"] = {
+    created: [],
+    updated: [],
+    unchanged: [],
+    remoteOnly: [],
+    pruned: [],
+    skipped: [],
+    total: 0,
+  };
+
+  if (
+    attributes === null &&
+    parameters.length === 0 &&
+    events.length === 0 &&
+    propertyGroups.length === 0 &&
+    !metricsRequest
+  ) {
     return {
       success: true,
       project: { id: project.id, name: project.name },
@@ -166,6 +202,7 @@ export async function pushConfig(options: {
       remoteOnly: [],
       pruned: [],
       total: 0,
+      attributes: emptyAttributes,
       events: {
         created: [],
         updated: [],
@@ -184,6 +221,47 @@ export async function pushConfig(options: {
   }
 
   if (isDryRun) {
+    // Dry run: compare attributes with remote (user-managed rows only; system rows are never synced)
+    let attributesDry = emptyAttributes;
+    if (attributes !== null) {
+      const remoteAttrs = (await client.listAttributes(projectId)).filter(
+        (a) => a.managedBy !== "system" && !a.archivedAt
+      );
+      const remoteAttrByKey = new Map(remoteAttrs.map((a) => [a.key, a]));
+
+      const attrsCreated: string[] = [];
+      const attrsUpdated: string[] = [];
+      const attrsUnchanged: string[] = [];
+
+      for (const attr of attributes) {
+        const remote = remoteAttrByKey.get(attr.key);
+        if (!remote) {
+          attrsCreated.push(attr.key);
+        } else if (attributeDiffers(attr, remote)) {
+          attrsUpdated.push(attr.key);
+        } else {
+          attrsUnchanged.push(attr.key);
+        }
+      }
+
+      const localAttrKeys = new Set(attributes.map((a) => a.key));
+      const attrsRemoteOnly = remoteAttrs
+        .filter((a) => a.synced && !localAttrKeys.has(a.key))
+        .map((a) => a.key);
+
+      attributesDry = {
+        created: attrsCreated,
+        updated: attrsUpdated,
+        unchanged: attrsUnchanged,
+        remoteOnly: attrsRemoteOnly,
+        // The server decides at prune time which candidates are still referenced,
+        // so a dry run can only list candidates.
+        pruned: options.prune ? attrsRemoteOnly : [],
+        skipped: [],
+        total: attributes.length,
+      };
+    }
+
     // Dry run: compare parameters with remote
     const remoteParams = await client.listParameters(projectId, { synced: true });
     const remoteKeys = new Map(remoteParams.map((p) => [p.key, p]));
@@ -310,6 +388,7 @@ export async function pushConfig(options: {
       remoteOnly,
       pruned: options.prune ? remoteOnly : [],
       total: parameters.length,
+      attributes: attributesDry,
       events: {
         created: eventsCreated,
         updated: eventsUpdated,
@@ -325,6 +404,25 @@ export async function pushConfig(options: {
       },
       metrics: metricsDry,
       metricsPath: metricsPath ?? undefined,
+    };
+  }
+
+  // Actual push - attributes first, so policies validated later in this run see the registry
+  let attributesResult = emptyAttributes;
+  if (attributes !== null) {
+    const attrSync = await client.syncAttributes(projectId, {
+      attributes,
+      source: "config.yaml",
+      ...(options.prune ? { prune: true } : {}),
+    });
+    attributesResult = {
+      created: attrSync.created.map((a) => a.key),
+      updated: attrSync.updated.map((a) => a.key),
+      unchanged: attrSync.unchanged.map((a) => a.key),
+      remoteOnly: attrSync.remoteOnly.map((a) => a.key),
+      pruned: (attrSync.pruned ?? []).map((a) => a.key),
+      skipped: (attrSync.skipped ?? []).map((a) => a.key),
+      total: attributes.length,
     };
   }
 
@@ -402,6 +500,7 @@ export async function pushConfig(options: {
     remoteOnly: result.remoteOnly.map((p) => p.key),
     pruned,
     total: parameters.length,
+    attributes: attributesResult,
     events: {
       created: eventResult.created.map((e) => e.name),
       updated: eventResult.updated.map((e) => e.name),
@@ -437,9 +536,60 @@ function printPushHuman(result: PushResult): void {
     console.log(chalk.dim(`Using metrics: ${result.metricsPath}\n`));
   }
 
-  if (result.total === 0 && result.events.total === 0 && result.propertyGroups.total === 0 && result.metrics.total === 0) {
-    console.log(chalk.yellow("No parameters, events, property groups, or metrics in config files."));
+  if (
+    result.attributes.total === 0 &&
+    result.total === 0 &&
+    result.events.total === 0 &&
+    result.propertyGroups.total === 0 &&
+    result.metrics.total === 0
+  ) {
+    console.log(chalk.yellow("No attributes, parameters, events, property groups, or metrics in config files."));
     return;
+  }
+
+  // Attributes section
+  if (result.attributes.total > 0) {
+    console.log(chalk.bold(result.dryRun ? "Would change (Local → Remote) Attributes:" : "Local → Remote (Attributes):"));
+
+    if (result.attributes.created.length > 0) {
+      console.log(chalk.green(`  + ${result.attributes.created.length} ${result.dryRun ? "would be created" : "created"}`));
+      result.attributes.created.forEach((key) => console.log(chalk.dim(`    ${key}`)));
+    }
+
+    if (result.attributes.updated.length > 0) {
+      console.log(chalk.yellow(`  ~ ${result.attributes.updated.length} ${result.dryRun ? "would be updated" : "updated"}`));
+      result.attributes.updated.forEach((key) => console.log(chalk.dim(`    ${key}`)));
+    }
+
+    if (result.attributes.unchanged.length > 0) {
+      console.log(chalk.dim(`  = ${result.attributes.unchanged.length} ${result.dryRun ? "already in sync" : "unchanged"}`));
+    }
+
+    console.log();
+  }
+
+  if (result.attributes.pruned.length > 0) {
+    console.log(chalk.green(`🗄 ${result.dryRun ? "Would archive" : "Archived"} ${result.attributes.pruned.length} orphaned synced attribute${result.attributes.pruned.length !== 1 ? "s" : ""}:`));
+    result.attributes.pruned.forEach((key) => console.log(chalk.dim(`  ${key}`)));
+    console.log();
+  } else if (result.attributes.remoteOnly.length > 0) {
+    console.log(chalk.yellow(`⚠ ${result.attributes.remoteOnly.length} orphaned synced attribute${result.attributes.remoteOnly.length !== 1 ? "s" : ""} (no longer in your config):`));
+    result.attributes.remoteOnly.forEach((key) => console.log(chalk.dim(`  ${key}`)));
+    console.log();
+    console.log(
+      chalk.dim("Use --prune to archive them, or 'traffical pull' to add them back to your config.")
+    );
+    console.log();
+  }
+
+  if (result.attributes.skipped.length > 0) {
+    console.log(chalk.yellow(`⚠ ${result.attributes.skipped.length} attribute${result.attributes.skipped.length !== 1 ? "s" : ""} not archived (still referenced by policies):`));
+    result.attributes.skipped.forEach((key) => console.log(chalk.dim(`  ${key}`)));
+    console.log();
+    console.log(
+      chalk.dim("Remove the referencing conditions in the dashboard, or add the attributes back to your config.")
+    );
+    console.log();
   }
 
   // Parameters section
@@ -575,6 +725,9 @@ function printPushHuman(result: PushResult): void {
     console.log(chalk.cyan("✓ Dry run complete - no changes made"));
   } else {
     const parts: string[] = [];
+    if (result.attributes.total > 0) {
+      parts.push(`${result.attributes.total} attribute${result.attributes.total !== 1 ? "s" : ""}`);
+    }
     if (result.total > 0) {
       parts.push(`${result.total} parameter${result.total !== 1 ? "s" : ""}`);
     }
@@ -610,7 +763,7 @@ export async function pushCommand(options: PushOptions): Promise<void> {
     if (isJson) {
       console.log(JSON.stringify(result, null, 2));
     } else {
-      if (!options.dryRun && (result.total > 0 || result.events.total > 0)) {
+      if (!options.dryRun && (result.attributes.total > 0 || result.total > 0 || result.events.total > 0)) {
         console.log(chalk.green("✓ Configuration valid\n"));
       }
       printPushHuman(result);
